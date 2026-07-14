@@ -1,7 +1,7 @@
 # HiveFin — Software Requirements Specification v3.0
 
-**Status:** Authoritative baseline. Supersedes SRS v2.0 and Amendments 001–007.
-**Incorporates:** ADR-001 (accrual + cash layer), ADR-002 (immutability), ADR-003 (credit/debit notes & void), ADR-004 (period close), ADR-005 (access control & SoD), ADR-006 (VAT/tax engine), ADR-007 (multi-currency/FX).
+**Status:** Authoritative requirements baseline. Supersedes SRS v2.0 and Amendments 001–007.
+**Incorporates:** ADR-001 (accrual + cash layer), ADR-002 (immutability), ADR-003 (credit/debit notes & void), ADR-004 (period close), ADR-005 (access control & SoD), ADR-006 (VAT/tax engine), ADR-007 (multi-currency/FX), ADR-008 (migration & open-item conversion), ADR-009 (document numbering).
 **Rule:** Future ADRs modify this document directly. Layered amendments only when unavoidable.
 
 ---
@@ -246,11 +246,9 @@ No cyclic dependencies. Each locked ADR is consistent with all prior. ADR-004 re
 
 ## 15. Ready-for-Architecture Checklist
 
-**Locked & consistent (7 ADRs):** ✅ accounting basis · ✅ immutability/correction · ✅ credit/debit notes & void · ✅ period close · ✅ access control/SoD · ✅ VAT/tax engine · ✅ multi-currency/FX. **All original-review accounting-correctness defects resolved.** Document internally consistent; only housekeeping swept (currency list, duplicate header).
+**Locked & consistent (9 ADRs):** ✅ accounting basis · ✅ immutability/correction · ✅ credit/debit notes & void · ✅ period close · ✅ access control/SoD · ✅ VAT/tax engine · ✅ multi-currency/FX · ✅ migration & open-item conversion · ✅ document numbering. **All original-review accounting-correctness defects resolved.** Document internally consistent; only housekeeping swept (currency list, duplicate header).
 
-**Should lock before the domain model is finalised (affect aggregates):**
-- ✅ **ADR-008 Migration** — open-item conversion locked; Invoice/Allocation aggregates and Migration context now safe to model.
-- ✅ **ADR-009 Numbering** — atomic scoped sequences + UUID identity; Invoice/Note aggregates now safe to model.
+**Future architecture decision:**
 - ☐ **ADR-010 Consolidation** — likely a separate bounded context; affects Reports.
 
 **Non-blocking for architecture (parameters/config):** external legal tax parameters; approval-policy configuration; period-end rate source.

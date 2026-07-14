@@ -146,5 +146,3 @@ Soft Close → `RunRevaluation` → `UnrealisedFXRevalued` → Ledger posts adju
 - **No business rule introduced or modified; no contradiction; no AP-001 violation; no unresolved major risk.**
 
 **Domain Events are complete and internally consistent.**
-
-*(Stopping here per instruction — awaiting your review before Repository Contracts.)*

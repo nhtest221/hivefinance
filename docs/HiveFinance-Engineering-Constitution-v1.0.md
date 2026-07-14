@@ -3,7 +3,7 @@
 **Version:** 1.0 (Draft for ratification)
 **Status:** Binding upon approval by the Chief Software Architect
 **Applies to:** Every human developer and every AI coding agent contributing to the HiveFinance codebase
-**Precedence:** SRS v3.0, ADR-001…ADR-009, and Architecture Principles (AP-001) are the source of truth. Where this Constitution and a frozen artifact appear to conflict, **stop and report** — do not resolve it in code.
+**Precedence:** SRS v3.0, the ADR register in `HiveFin_Decision_Log.md` (ADR-001…ADR-009), Architecture Principles (AP-001), and the approved architecture artifacts are the source of truth. Where this Constitution and a frozen artifact appear to conflict, **stop and report** — do not resolve it in code.
 
 ---
 
@@ -23,7 +23,7 @@
 - **ARCH-01** — Clean Architecture dependency rule is absolute: **Domain → Application → Infrastructure/Interface**, inward only. The Domain layer depends on nothing external (no framework, ORM, HTTP, or I/O).
 - **ARCH-02** — The system is a **modular monolith**. Modules map to bounded contexts from the Context Map. No module reaches into another module's internals; interaction happens only through published contracts and domain events per the Context Interaction Matrix.
 - **ARCH-03** — Business logic lives in the Domain/Application layers only. Controllers, repositories, and infrastructure contain **no business rules**.
-- **ARCH-04** — One aggregate is mutated per transaction. Cross-aggregate and cross-context consistency is **eventual**, achieved via domain events, never via a shared transaction spanning aggregates.
+- **ARCH-04** — Aggregate roots remain separate consistency boundaries. Cross-aggregate and cross-context writes occur only through the owning context's application service/command. Where the approved Aggregate Design and Repository Contracts define a financial-integrity Unit of Work, the application service may coordinate multiple aggregates in one transaction; all other cross-context propagation is eventual via domain events.
 - **ARCH-05** — Domain events are published reliably using the **outbox pattern** (persist event in the same transaction as the state change; dispatch after commit). No fire-and-forget publishing inside domain logic.
 - **ARCH-06** — No shared mutable state across modules; no back-door database reads into another context's tables.
 - **ARCH-07** — New dependencies (libraries, services, infra) require architect approval and a recorded rationale. Default answer is no.

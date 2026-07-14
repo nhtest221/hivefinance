@@ -186,4 +186,4 @@ No blocking smell. Two monitored items (Settlement boundary; Partnership).
 
 **Verdict:** The Context Map is internally consistent, AP-001-compliant, acyclic in its synchronous dependencies, and free of blocking architectural smells. Two items are on watch (Settlement boundary discipline; the Settlement↔document Partnership). The modular-monolith deployment has clean seams and a justified extraction path, with an explicit *do-not-split* around the accounting core.
 
-**Recommendation:** approve the Context Map and proceed to **Aggregate Design**, beginning with the most invariant-dense aggregates — **JournalEntry** (balanced + immutable) and **Allocation** (no-over-allocation + per-tranche FX) — since they anchor the Ledger and the Settlement Partnership respectively. *(Held pending your approval, per instruction.)*
+**Recommendation:** use this Context Map as the approved boundary guide for Aggregate Design and implementation planning, beginning with the most invariant-dense aggregates — **JournalEntry** (balanced + immutable) and **Allocation** (no-over-allocation + per-tranche FX) — since they anchor the Ledger and the Settlement Partnership respectively.
