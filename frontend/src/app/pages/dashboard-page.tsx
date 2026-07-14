@@ -1,12 +1,13 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { Alert, Badge, Card, CardContent, CardHeader, Table, TableCell, TableHead, TableHeader, TableRow } from '@/design-system'
+import { Alert, Badge, Card, CardContent, CardHeader, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow } from '@/design-system'
 import { AppLayout } from '@/layouts/app-layout'
 import { cashTrend, kpis, receivables } from '../mock-data'
 
 export function DashboardPage() {
   return (
     <AppLayout>
+      <PageHeader title="Dashboard" description="Entity-scoped finance overview with cash, receivables, payables, and close readiness." />
       <div className="space-y-4 p-4 lg:p-6">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {kpis.map((kpi) => (
