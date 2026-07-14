@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+backend/vendor/
+backend/.phpunit.cache/
+backend/storage/logs/*.log
+backend/bootstrap/cache/*.php
+
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+coverage/
