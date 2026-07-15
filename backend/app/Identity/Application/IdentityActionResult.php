@@ -5,9 +5,7 @@ namespace App\Identity\Application;
 final readonly class IdentityActionResult
 {
     /** @param array<string, mixed> $payload */
-    private function __construct(public bool $ok, public int $status, public array $payload)
-    {
-    }
+    private function __construct(public bool $ok, public int $status, public array $payload) {}
 
     /** @param array<string, mixed> $payload */
     public static function ok(array $payload, int $status = 200): self
