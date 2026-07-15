@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Override;
 
+/**
+ * @property string $request_hash
+ * @property int $response_status
+ * @property array<string, mixed> $response_body
+ */
 final class IdempotencyRecord extends Model
 {
     use HasUuids;
