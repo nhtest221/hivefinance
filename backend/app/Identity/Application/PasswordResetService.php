@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 
-final class PasswordResetService
+final readonly class PasswordResetService
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(private AuditLogger $audit) {}
 
     public function sendResetLink(string $email): IdentityActionResult
     {

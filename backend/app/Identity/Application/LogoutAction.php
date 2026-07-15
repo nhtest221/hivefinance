@@ -5,9 +5,9 @@ namespace App\Identity\Application;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 
-final class LogoutAction
+final readonly class LogoutAction
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(private AuditLogger $audit) {}
 
     public function execute(User $user): void
     {

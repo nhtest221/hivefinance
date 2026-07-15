@@ -4,9 +4,9 @@ namespace App\Identity\Application;
 
 use App\Models\User;
 
-final class AuthSessionPresenter
+final readonly class AuthSessionPresenter
 {
-    public function __construct(private readonly RoleAuthorizationService $authorization) {}
+    public function __construct(private RoleAuthorizationService $authorization) {}
 
     /**
      * @return array<string, mixed>

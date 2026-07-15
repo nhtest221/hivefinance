@@ -6,11 +6,11 @@ use App\Models\Identity\Entity;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 
-final class EntityAccessService
+final readonly class EntityAccessService
 {
     public function __construct(
-        private readonly AuditLogger $audit,
-        private readonly RoleAuthorizationService $authorization,
+        private AuditLogger $audit,
+        private RoleAuthorizationService $authorization,
     ) {}
 
     /**

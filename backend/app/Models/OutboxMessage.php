@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Override;
 
 final class OutboxMessage extends Model
 {
@@ -24,6 +25,7 @@ final class OutboxMessage extends Model
         'last_error',
     ];
 
+    #[Override]
     protected function casts(): array
     {
         return [

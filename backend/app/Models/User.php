@@ -13,6 +13,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
+use Override;
 
 /**
  * @property string $id
@@ -52,6 +53,7 @@ final class User extends Authenticatable implements CanResetPassword
         'mfa_config',
     ];
 
+    #[Override]
     protected function casts(): array
     {
         return [

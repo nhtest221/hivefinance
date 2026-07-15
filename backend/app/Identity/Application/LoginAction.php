@@ -8,14 +8,14 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
-final class LoginAction
+final readonly class LoginAction
 {
     public function __construct(
-        private readonly AuditLogger $audit,
-        private readonly FailedLoginLockoutPolicy $lockout,
-        private readonly RoleAuthorizationService $authorization,
-        private readonly MfaService $mfa,
-        private readonly AuthSessionPresenter $presenter,
+        private AuditLogger $audit,
+        private FailedLoginLockoutPolicy $lockout,
+        private RoleAuthorizationService $authorization,
+        private MfaService $mfa,
+        private AuthSessionPresenter $presenter,
     ) {}
 
     public function execute(string $email, string $password, ?string $ipAddress, ?string $userAgent): IdentityActionResult

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Override;
 
 final class AuditLog extends Model
 {
@@ -25,6 +26,7 @@ final class AuditLog extends Model
         'correlation_id',
     ];
 
+    #[Override]
     protected function casts(): array
     {
         return [
