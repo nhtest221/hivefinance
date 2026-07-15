@@ -6,8 +6,8 @@ use App\Models\Ledger\LedgerAccount;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Pagination\Cursor;
 
 final readonly class AccountService
 {
@@ -123,18 +123,20 @@ final readonly class AccountService
         return new LedgerActionResult(['account' => $this->present($account)]);
     }
 
-    public function list(User $actor, string $entityId): LedgerActionResult
+    public function list(User $actor, string $entityId, string $status = 'active', int $limit = 50, mixed $cursor = null): LedgerActionResult
     {
         $permission = 'ledger.accounts.read';
         if (! $this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
-        /** @var Collection<int, LedgerAccount> $accounts */
-        $accounts = LedgerAccount::query()->where('entity_id', $entityId)->orderBy('code')->get();
+        $decodedCursor = is_string($cursor) ? Cursor::fromEncoded($cursor) : null;
+        $accounts = LedgerAccount::query()->where('entity_id', $entityId)->where('status', $status)
+            ->orderBy('code')->orderBy('id')->cursorPaginate($limit, ['*'], 'cursor', $decodedCursor);
 
         return new LedgerActionResult([
-            'accounts' => $accounts->map(fn (LedgerAccount $account): array => $this->present($account))->all(),
+            'accounts' => $accounts->getCollection()->map(fn (LedgerAccount $account): array => $this->present($account))->all(),
+            'page' => ['limit' => $limit, 'next_cursor' => $accounts->nextCursor()?->encode()],
         ]);
     }
 
@@ -145,7 +147,6 @@ final readonly class AccountService
     {
         return [
             'id' => $account->id,
-            'entity_id' => $account->entity_id,
             'code' => $account->code,
             'name' => $account->name,
             'type' => $account->type,

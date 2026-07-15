@@ -130,24 +130,24 @@ it('posts a balanced manual journal, records audit and outbox events, and serves
         'entry_date' => '2026-07-15',
         'narration' => 'Manual revenue accrual',
         'lines' => [
-            ['account_id' => $cash->id, 'debit' => '100.1000', 'credit' => '0', 'currency' => 'BDT'],
-            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '100.1000', 'currency' => 'BDT'],
+            ['account_id' => $cash->id, 'debit' => ['amount' => '100.1000', 'currency' => 'BDT'], 'credit' => null],
+            ['account_id' => $revenue->id, 'debit' => null, 'credit' => ['amount' => '100.1000', 'currency' => 'BDT']],
         ],
-    ], ['X-Entity-Id' => $entity->id])
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => '10000000-0000-4000-8000-000000000001'])
         ->assertCreated()
-        ->assertJsonPath('journal.state', 'draft')
+        ->assertJsonPath('journal.state', 'Draft')
         ->json('journal.id');
 
     $this->postJson("/v1/journals/{$journalId}/post", [], [
         'X-Entity-Id' => $entity->id,
-        'Idempotency-Key' => 'post-journal-1',
+        'Idempotency-Key' => '20000000-0000-4000-8000-000000000001', 'If-Match' => '1',
     ])
         ->assertOk()
-        ->assertJsonPath('journal.state', 'posted');
+        ->assertJsonPath('journal.state', 'Posted');
 
     $this->getJson("/v1/reports/general-ledger?account={$cash->id}&range=2026-07-01..2026-07-31", ['X-Entity-Id' => $entity->id])
         ->assertOk()
-        ->assertJsonPath('entries.0.running_balance', '100.1000');
+        ->assertJsonPath('entries.0.running_balance.amount', '100.1000');
 
     $this->getJson('/v1/reports/trial-balance?asOf=2026-07-31', ['X-Entity-Id' => $entity->id])
         ->assertOk()
@@ -167,10 +167,10 @@ it('rejects unbalanced journals before posting', function (): void {
     $this->postJson('/v1/journals', [
         'entry_date' => '2026-07-15',
         'lines' => [
-            ['account_id' => $cash->id, 'debit' => '100.0000', 'credit' => '0', 'currency' => 'BDT'],
-            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '99.9999', 'currency' => 'BDT'],
+            ['account_id' => $cash->id, 'debit' => ['amount' => '100.0000', 'currency' => 'BDT'], 'credit' => null],
+            ['account_id' => $revenue->id, 'debit' => null, 'credit' => ['amount' => '99.9999', 'currency' => 'BDT']],
         ],
-    ], ['X-Entity-Id' => $entity->id])
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => '10000000-0000-4000-8000-000000000002'])
         ->assertUnprocessable()
         ->assertJsonPath('error_code', 'invariant_violation')
         ->assertJsonPath('details.rule', 'balanced_journal');
@@ -185,14 +185,14 @@ it('enforces period status rules when posting a journal', function (): void {
     $journalId = $this->postJson('/v1/journals', [
         'entry_date' => '2026-07-15',
         'lines' => [
-            ['account_id' => $cash->id, 'debit' => '100.0000', 'credit' => '0', 'currency' => 'BDT'],
-            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '100.0000', 'currency' => 'BDT'],
+            ['account_id' => $cash->id, 'debit' => ['amount' => '100.0000', 'currency' => 'BDT'], 'credit' => null],
+            ['account_id' => $revenue->id, 'debit' => null, 'credit' => ['amount' => '100.0000', 'currency' => 'BDT']],
         ],
-    ], ['X-Entity-Id' => $entity->id])->json('journal.id');
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => '10000000-0000-4000-8000-000000000003'])->json('journal.id');
 
     $this->postJson("/v1/journals/{$journalId}/post", [], [
         'X-Entity-Id' => $entity->id,
-        'Idempotency-Key' => 'locked-period-post',
+        'Idempotency-Key' => '20000000-0000-4000-8000-000000000003', 'If-Match' => '1',
     ])
         ->assertStatus(423)
         ->assertJsonPath('error_code', 'period_locked');
@@ -210,14 +210,14 @@ it('creates a linked posted reversal without mutating the original posted journa
     $journalId = $this->postJson('/v1/journals', [
         'entry_date' => '2026-07-15',
         'lines' => [
-            ['account_id' => $cash->id, 'debit' => '100.0000', 'credit' => '0', 'currency' => 'BDT'],
-            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '100.0000', 'currency' => 'BDT'],
+            ['account_id' => $cash->id, 'debit' => ['amount' => '100.0000', 'currency' => 'BDT'], 'credit' => null],
+            ['account_id' => $revenue->id, 'debit' => null, 'credit' => ['amount' => '100.0000', 'currency' => 'BDT']],
         ],
-    ], ['X-Entity-Id' => $entity->id])->json('journal.id');
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => '10000000-0000-4000-8000-000000000004'])->json('journal.id');
 
     $this->postJson("/v1/journals/{$journalId}/post", [], [
         'X-Entity-Id' => $entity->id,
-        'Idempotency-Key' => 'post-before-reverse',
+        'Idempotency-Key' => '20000000-0000-4000-8000-000000000004', 'If-Match' => '1',
     ])->assertOk();
 
     $reversalId = $this->postJson("/v1/journals/{$journalId}/reverse", [
@@ -228,7 +228,7 @@ it('creates a linked posted reversal without mutating the original posted journa
         'Idempotency-Key' => 'reverse-journal-1',
     ])
         ->assertCreated()
-        ->assertJsonPath('journal.state', 'posted')
+        ->assertJsonPath('journal.state', 'Posted')
         ->assertJsonPath('journal.reversal_of_entry_id', $journalId)
         ->json('journal.id');
 

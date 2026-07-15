@@ -10,5 +10,6 @@ final readonly class LedgerActionResult
     public function __construct(
         public array $payload,
         public int $status = 200,
+        public array $headers = [],
     ) {}
 }

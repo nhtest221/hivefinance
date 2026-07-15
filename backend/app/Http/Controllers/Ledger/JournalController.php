@@ -20,7 +20,7 @@ final class JournalController
             $request->query('status') !== null ? (string) $request->query('status') : null,
         );
 
-        return response()->json($result->payload, $result->status);
+        return response()->json($result->payload, $result->status, $result->headers);
     }
 
     public function store(StoreJournalRequest $request, JournalService $journals): JsonResponse
@@ -29,9 +29,10 @@ final class JournalController
             $request->user(),
             (string) $request->header('X-Entity-Id'),
             $request->validated(),
+            $request->headers->get('Idempotency-Key'),
         );
 
-        return response()->json($result->payload, $result->status);
+        return response()->json($result->payload, $result->status, $result->headers);
     }
 
     public function post(Request $request, JournalService $journals, string $id): JsonResponse
@@ -41,6 +42,7 @@ final class JournalController
             (string) $request->header('X-Entity-Id'),
             $id,
             $request->headers->get('Idempotency-Key'),
+            $request->headers->get('If-Match'),
         );
 
         return response()->json($result->payload, $result->status);
