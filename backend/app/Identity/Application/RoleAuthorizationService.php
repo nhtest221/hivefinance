@@ -36,7 +36,7 @@ final class RoleAuthorizationService
         /** @var \Illuminate\Database\Eloquent\Collection<int, Role> $roles */
         $roles = $user->roles()
             ->with('permissions')
-            ->when($entityId !== null, fn ($query) => $query->wherePivot('entity_id', $entityId))
+            ->when($entityId !== null, fn ($query) => $query->where('identity_role_user.entity_id', $entityId))
             ->get();
 
         return $roles
@@ -52,7 +52,7 @@ final class RoleAuthorizationService
     public function roleSlugs(User $user, ?string $entityId = null): Collection
     {
         return $user->roles()
-            ->when($entityId !== null, fn ($query) => $query->wherePivot('entity_id', $entityId))
+            ->when($entityId !== null, fn ($query) => $query->where('identity_role_user.entity_id', $entityId))
             ->pluck('slug')
             ->values();
     }
