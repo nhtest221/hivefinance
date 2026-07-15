@@ -1,7 +1,7 @@
 <?php
 
 it('returns backend health', function (): void {
-    $this->getJson('/api/health')
+    $this->getJson('/v1/health')
         ->assertOk()
         ->assertJson([
             'status' => 'ok',
