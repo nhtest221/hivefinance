@@ -7,9 +7,9 @@ use Stringable;
 
 final readonly class DecimalAmount implements Stringable
 {
-    private const FACTOR = 10000;
+    private const int FACTOR = 10000;
 
-    private const SCALE = 4;
+    private const int SCALE = 4;
 
     private function __construct(private int $units) {}
 
