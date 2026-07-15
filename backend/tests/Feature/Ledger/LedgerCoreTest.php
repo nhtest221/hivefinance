@@ -15,6 +15,10 @@ uses(RefreshDatabase::class);
 
 function createLedgerActor(array $permissions = []): array
 {
+    static $actorSequence = 0;
+
+    $actorSequence++;
+
     $entity = Entity::query()->create([
         'legal_name' => 'NotionHive Bangladesh',
         'functional_currency' => 'BDT',
@@ -22,7 +26,7 @@ function createLedgerActor(array $permissions = []): array
 
     $user = User::query()->create([
         'name' => 'Ledger User',
-        'email' => fake()->unique()->safeEmail(),
+        'email' => sprintf('ledger-user-%d@example.test', $actorSequence),
         'password' => 'correct-horse-battery',
         'status' => 'active',
         'active_entity_id' => $entity->id,
