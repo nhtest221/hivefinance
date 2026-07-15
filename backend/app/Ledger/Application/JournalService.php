@@ -19,28 +19,8 @@ use Illuminate\Support\Str;
 
 final readonly class JournalService
 {
-    private LedgerAuthorizationService $authorization;
-
-    private PeriodQuery $periods;
-
-    private AuditLogger $audit;
-
-    private Outbox $outbox;
-
-    private EntityReferenceQuery $entities;
-
-    public function __construct(
-        LedgerAuthorizationService $authorization,
-        PeriodQuery $periods,
-        AuditLogger $audit,
-        Outbox $outbox,
-        EntityReferenceQuery $entities,
-    ) {
-        $this->authorization = $authorization;
-        $this->periods = $periods;
-        $this->audit = $audit;
-        $this->outbox = $outbox;
-        $this->entities = $entities;
+    public function __construct(private LedgerAuthorizationService $authorization, private PeriodQuery $periods, private AuditLogger $audit, private Outbox $outbox, private EntityReferenceQuery $entities)
+    {
     }
 
     /**

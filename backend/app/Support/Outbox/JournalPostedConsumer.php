@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 final class JournalPostedConsumer
 {
-    private const NAME = 'm0.journal-posted-observer';
+    private const string NAME = 'm0.journal-posted-observer';
 
     public function consume(OutboxMessage $event): void
     {
