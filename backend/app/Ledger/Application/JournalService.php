@@ -38,7 +38,7 @@ final readonly class JournalService
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || !Str::isUuid($idempotencyKey)) {
+        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
         $operation = 'POST /v1/journals';
@@ -105,7 +105,7 @@ final readonly class JournalService
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || !Str::isUuid($idempotencyKey)) {
+        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
         if ($ifMatch === null || preg_match('/^\d+$/', $ifMatch) !== 1) {
