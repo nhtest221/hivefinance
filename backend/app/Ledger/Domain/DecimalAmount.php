@@ -11,9 +11,7 @@ final readonly class DecimalAmount implements Stringable
 
     private const SCALE = 4;
 
-    private function __construct(private int $units)
-    {
-    }
+    private function __construct(private int $units) {}
 
     public static function zero(): self
     {
