@@ -28,6 +28,10 @@ export function LoginPage() {
       }
 
       sessionStorage.setItem('hivefinance.auth_token', result.token)
+      if (result.session.active_entity !== null) {
+        sessionStorage.setItem('hivefinance.entity_id', result.session.active_entity.id)
+        sessionStorage.setItem('hivefinance.functional_currency', result.session.active_entity.functional_currency)
+      }
       navigate('/')
     } catch (requestError) {
       if (requestError instanceof ApiRequestError) {
