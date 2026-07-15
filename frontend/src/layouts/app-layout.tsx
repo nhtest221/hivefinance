@@ -11,7 +11,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar>
         <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-5">
-<img src="/nh_logo.png" alt="HiveFinance" className="h-6 w-auto object-contain" />
+          <img src="/nh_logo.png" alt="HiveFinance" className="h-6 w-auto object-contain" />
           <Badge variant="info">BD</Badge>
         </div>
         {navigationGroups.map((group) => (

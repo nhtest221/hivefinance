@@ -1,5 +1,5 @@
 export async function healthCheck() {
-  const response = await fetch('/api/health')
+  const response = await fetch('/v1/health')
 
   if (!response.ok) {
     throw new Error('Health check failed')

@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router'
 
 import { DashboardPage } from './pages/dashboard-page'
+import { ForgotPasswordPage } from './pages/forgot-password-page'
 import { LoginPage } from './pages/login-page'
 import {
   AuditLogPage,
@@ -15,9 +16,12 @@ import {
   SettlementPage,
   TaxPage,
 } from './pages/module-screens'
+import { ResetPasswordPage } from './pages/reset-password-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/', element: <DashboardPage /> },
   { path: '/chart-of-accounts', element: <ChartOfAccountsPage /> },
   { path: '/journal-entries', element: <JournalEntriesPage /> },
