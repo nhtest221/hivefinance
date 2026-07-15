@@ -26,13 +26,13 @@ final readonly class DecimalAmount implements Stringable
             throw new InvalidArgumentException('Money amounts must not be floats.');
         }
 
-        if (! is_string($amount) && ! is_int($amount)) {
+        if (is_string($amount) === false && is_int($amount) === false) {
             throw new InvalidArgumentException('Amount must be a string or integer decimal.');
         }
 
         $value = trim((string) $amount);
 
-        if (! preg_match('/^-?\d+(\.\d{1,4})?$/', $value)) {
+        if (preg_match('/^-?\d+(\.\d{1,4})?$/', $value) !== 1) {
             throw new InvalidArgumentException('Amount must be an exact decimal with at most 4 places.');
         }
 
@@ -42,7 +42,7 @@ final readonly class DecimalAmount implements Stringable
         $fraction = str_pad($fraction, self::SCALE, '0');
         $units = ((int) $whole * self::FACTOR) + (int) $fraction;
 
-        return new self($negative ? -$units : $units);
+        return new self($negative ? 0 - $units : $units);
     }
 
     public function add(self $amount): self
@@ -57,7 +57,7 @@ final readonly class DecimalAmount implements Stringable
 
     public function negate(): self
     {
-        return new self(-$this->units);
+        return new self(0 - $this->units);
     }
 
     public function isZero(): bool
