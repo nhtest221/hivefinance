@@ -1,0 +1,235 @@
+<?php
+
+use App\Models\AuditLog;
+use App\Models\Identity\Entity;
+use App\Models\Identity\Role;
+use App\Models\Ledger\JournalEntry;
+use App\Models\Ledger\LedgerAccount;
+use App\Models\OutboxMessage;
+use App\Models\Period\AccountingPeriod;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
+
+uses(RefreshDatabase::class);
+
+function createLedgerActor(array $permissions = []): array
+{
+    $entity = Entity::query()->create([
+        'legal_name' => 'NotionHive Bangladesh',
+        'functional_currency' => 'BDT',
+    ]);
+
+    $user = User::query()->create([
+        'name' => 'Ledger User',
+        'email' => fake()->unique()->safeEmail(),
+        'password' => 'correct-horse-battery',
+        'status' => 'active',
+        'active_entity_id' => $entity->id,
+    ]);
+
+    $role = Role::query()->create([
+        'entity_id' => $entity->id,
+        'name' => 'Accountant',
+        'slug' => 'accountant',
+        'is_system' => true,
+    ]);
+
+    foreach ($permissions as $permission) {
+        $role->permissions()->create(['permission' => $permission]);
+    }
+
+    $user->entities()->attach($entity->id, ['status' => 'active']);
+    $user->roles()->attach($role->id, ['entity_id' => $entity->id]);
+
+    AccountingPeriod::query()->create([
+        'entity_id' => $entity->id,
+        'period_ref' => '2026-07',
+        'starts_on' => '2026-07-01',
+        'ends_on' => '2026-07-31',
+        'state' => 'open',
+    ]);
+
+    return [$user->refresh(), $entity, $role];
+}
+
+function createLedgerAccounts(string $entityId): array
+{
+    $cash = LedgerAccount::query()->create([
+        'entity_id' => $entityId,
+        'code' => '1000',
+        'name' => 'Cash in Bank',
+        'type' => 'asset',
+        'normal_balance' => 'debit',
+        'status' => 'active',
+    ]);
+
+    $revenue = LedgerAccount::query()->create([
+        'entity_id' => $entityId,
+        'code' => '4000',
+        'name' => 'Service Revenue',
+        'type' => 'revenue',
+        'normal_balance' => 'credit',
+        'status' => 'active',
+    ]);
+
+    return [$cash, $revenue];
+}
+
+it('creates and deactivates chart of account records with audit logging', function (): void {
+    [$user, $entity] = createLedgerActor(['ledger.accounts.manage', 'ledger.accounts.read']);
+    Sanctum::actingAs($user);
+
+    $accountId = $this->postJson('/v1/accounts', [
+        'code' => '1010',
+        'name' => 'Operating Bank',
+        'type' => 'asset',
+    ], ['X-Entity-Id' => $entity->id])
+        ->assertCreated()
+        ->assertJsonPath('account.normal_balance', 'debit')
+        ->json('account.id');
+
+    $this->postJson("/v1/accounts/{$accountId}/deactivate", [], ['X-Entity-Id' => $entity->id])
+        ->assertOk()
+        ->assertJsonPath('account.status', 'deactivated');
+
+    expect(AuditLog::query()->where('action', 'account_created')->exists())->toBeTrue()
+        ->and(AuditLog::query()->where('action', 'account_deactivated')->exists())->toBeTrue()
+        ->and(OutboxMessage::query()->where('event_type', 'AccountCreated')->exists())->toBeTrue()
+        ->and(OutboxMessage::query()->where('event_type', 'AccountDeactivated')->exists())->toBeTrue();
+});
+
+it('denies ledger writes without the required RBAC permission', function (): void {
+    [$user, $entity] = createLedgerActor();
+    Sanctum::actingAs($user);
+
+    $this->postJson('/v1/accounts', [
+        'code' => '1010',
+        'name' => 'Operating Bank',
+        'type' => 'asset',
+    ], ['X-Entity-Id' => $entity->id])
+        ->assertForbidden()
+        ->assertJsonPath('error_code', 'authorization');
+});
+
+it('posts a balanced manual journal, records audit and outbox events, and serves GL and trial balance', function (): void {
+    [$user, $entity] = createLedgerActor([
+        'ledger.journals.create',
+        'ledger.journals.post',
+        'ledger.journals.read',
+        'ledger.reports.read',
+    ]);
+    [$cash, $revenue] = createLedgerAccounts($entity->id);
+    Sanctum::actingAs($user);
+
+    $journalId = $this->postJson('/v1/journals', [
+        'entry_date' => '2026-07-15',
+        'narration' => 'Manual revenue accrual',
+        'lines' => [
+            ['account_id' => $cash->id, 'debit' => '100.1000', 'credit' => '0', 'currency' => 'BDT'],
+            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '100.1000', 'currency' => 'BDT'],
+        ],
+    ], ['X-Entity-Id' => $entity->id])
+        ->assertCreated()
+        ->assertJsonPath('journal.state', 'draft')
+        ->json('journal.id');
+
+    $this->postJson("/v1/journals/{$journalId}/post", [], [
+        'X-Entity-Id' => $entity->id,
+        'Idempotency-Key' => 'post-journal-1',
+    ])
+        ->assertOk()
+        ->assertJsonPath('journal.state', 'posted');
+
+    $this->getJson("/v1/reports/general-ledger?account={$cash->id}&range=2026-07-01..2026-07-31", ['X-Entity-Id' => $entity->id])
+        ->assertOk()
+        ->assertJsonPath('entries.0.running_balance', '100.1000');
+
+    $this->getJson('/v1/reports/trial-balance?asOf=2026-07-31', ['X-Entity-Id' => $entity->id])
+        ->assertOk()
+        ->assertJsonPath('totals.balanced', true)
+        ->assertJsonPath('totals.debit', '100.1000')
+        ->assertJsonPath('totals.credit', '100.1000');
+
+    expect(AuditLog::query()->where('action', 'journal_posted')->exists())->toBeTrue()
+        ->and(OutboxMessage::query()->where('event_type', 'JournalPosted')->exists())->toBeTrue();
+});
+
+it('rejects unbalanced journals before posting', function (): void {
+    [$user, $entity] = createLedgerActor(['ledger.journals.create']);
+    [$cash, $revenue] = createLedgerAccounts($entity->id);
+    Sanctum::actingAs($user);
+
+    $this->postJson('/v1/journals', [
+        'entry_date' => '2026-07-15',
+        'lines' => [
+            ['account_id' => $cash->id, 'debit' => '100.0000', 'credit' => '0', 'currency' => 'BDT'],
+            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '99.9999', 'currency' => 'BDT'],
+        ],
+    ], ['X-Entity-Id' => $entity->id])
+        ->assertUnprocessable()
+        ->assertJsonPath('error_code', 'invariant_violation')
+        ->assertJsonPath('details.rule', 'balanced_journal');
+});
+
+it('enforces period status rules when posting a journal', function (): void {
+    [$user, $entity] = createLedgerActor(['ledger.journals.create', 'ledger.journals.post']);
+    [$cash, $revenue] = createLedgerAccounts($entity->id);
+    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'hard_closed']);
+    Sanctum::actingAs($user);
+
+    $journalId = $this->postJson('/v1/journals', [
+        'entry_date' => '2026-07-15',
+        'lines' => [
+            ['account_id' => $cash->id, 'debit' => '100.0000', 'credit' => '0', 'currency' => 'BDT'],
+            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '100.0000', 'currency' => 'BDT'],
+        ],
+    ], ['X-Entity-Id' => $entity->id])->json('journal.id');
+
+    $this->postJson("/v1/journals/{$journalId}/post", [], [
+        'X-Entity-Id' => $entity->id,
+        'Idempotency-Key' => 'locked-period-post',
+    ])
+        ->assertStatus(423)
+        ->assertJsonPath('error_code', 'period_locked');
+});
+
+it('creates a linked posted reversal without mutating the original posted journal', function (): void {
+    [$user, $entity] = createLedgerActor([
+        'ledger.journals.create',
+        'ledger.journals.post',
+        'ledger.journals.reverse',
+    ]);
+    [$cash, $revenue] = createLedgerAccounts($entity->id);
+    Sanctum::actingAs($user);
+
+    $journalId = $this->postJson('/v1/journals', [
+        'entry_date' => '2026-07-15',
+        'lines' => [
+            ['account_id' => $cash->id, 'debit' => '100.0000', 'credit' => '0', 'currency' => 'BDT'],
+            ['account_id' => $revenue->id, 'debit' => '0', 'credit' => '100.0000', 'currency' => 'BDT'],
+        ],
+    ], ['X-Entity-Id' => $entity->id])->json('journal.id');
+
+    $this->postJson("/v1/journals/{$journalId}/post", [], [
+        'X-Entity-Id' => $entity->id,
+        'Idempotency-Key' => 'post-before-reverse',
+    ])->assertOk();
+
+    $reversalId = $this->postJson("/v1/journals/{$journalId}/reverse", [
+        'entry_date' => '2026-07-20',
+        'reason' => 'Correction by reversal',
+    ], [
+        'X-Entity-Id' => $entity->id,
+        'Idempotency-Key' => 'reverse-journal-1',
+    ])
+        ->assertCreated()
+        ->assertJsonPath('journal.state', 'posted')
+        ->assertJsonPath('journal.reversal_of_entry_id', $journalId)
+        ->json('journal.id');
+
+    expect($reversalId)->not->toBe($journalId)
+        ->and(JournalEntry::query()->find($journalId)->state)->toBe('posted')
+        ->and(OutboxMessage::query()->where('event_type', 'JournalReversed')->exists())->toBeTrue()
+        ->and(AuditLog::query()->where('action', 'journal_reversed')->exists())->toBeTrue();
+});
