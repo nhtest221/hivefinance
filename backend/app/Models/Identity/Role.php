@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property string $id
+ * @property string $slug
+ */
 final class Role extends Model
 {
     use HasUuids;
@@ -31,16 +35,25 @@ final class Role extends Model
         ];
     }
 
+    /**
+     * @return BelongsTo<Entity, $this>
+     */
     public function entity(): BelongsTo
     {
         return $this->belongsTo(Entity::class);
     }
 
+    /**
+     * @return HasMany<RolePermission, $this>
+     */
     public function permissions(): HasMany
     {
         return $this->hasMany(RolePermission::class);
     }
 
+    /**
+     * @return BelongsToMany<User, $this>
+     */
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'identity_role_user')

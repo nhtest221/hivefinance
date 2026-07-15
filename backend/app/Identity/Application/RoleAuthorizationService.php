@@ -3,6 +3,7 @@
 namespace App\Identity\Application;
 
 use App\Enums\SystemRole;
+use App\Models\Identity\Role;
 use App\Models\User;
 use Illuminate\Support\Collection;
 
@@ -32,13 +33,14 @@ final class RoleAuthorizationService
      */
     public function permissions(User $user, ?string $entityId = null): array
     {
+        /** @var \Illuminate\Database\Eloquent\Collection<int, Role> $roles */
         $roles = $user->roles()
             ->with('permissions')
             ->when($entityId !== null, fn ($query) => $query->wherePivot('entity_id', $entityId))
             ->get();
 
         return $roles
-            ->flatMap(fn ($role): Collection => $role->permissions->pluck('permission'))
+            ->flatMap(fn (Role $role): Collection => $role->permissions->pluck('permission'))
             ->unique()
             ->values()
             ->all();

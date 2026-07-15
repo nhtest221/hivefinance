@@ -2,6 +2,7 @@
 
 namespace App\Identity\Application;
 
+use App\Models\Identity\Entity;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 
@@ -21,7 +22,7 @@ final class EntityAccessService
             ->wherePivot('status', 'active')
             ->orderBy('legal_name')
             ->get()
-            ->map(fn ($entity): array => [
+            ->map(fn (Entity $entity): array => [
                 'id' => $entity->id,
                 'legal_name' => $entity->legal_name,
                 'functional_currency' => $entity->functional_currency,

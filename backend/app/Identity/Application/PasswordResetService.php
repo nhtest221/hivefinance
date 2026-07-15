@@ -17,8 +17,9 @@ final class PasswordResetService
     {
         $status = Password::sendResetLink(['email' => strtolower($email)]);
         $user = User::query()->where('email', strtolower($email))->first();
+        $recordId = $user instanceof User ? $user->id : (string) Str::uuid();
 
-        $this->audit->record('identity', 'password_reset_requested', 'user', $user?->id ?? (string) Str::uuid(), $user?->id, $user?->active_entity_id, metadata: [
+        $this->audit->record('identity', 'password_reset_requested', 'user', $recordId, $user?->id, $user?->active_entity_id, metadata: [
             'email' => strtolower($email),
             'status' => $status,
         ]);

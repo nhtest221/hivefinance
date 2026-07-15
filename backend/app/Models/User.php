@@ -13,6 +13,17 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * @property string $id
+ * @property string $name
+ * @property string $email
+ * @property string $password
+ * @property string $status
+ * @property string|null $active_entity_id
+ * @property \Illuminate\Support\Carbon|null $locked_until
+ * @property bool $mfa_required
+ * @property bool $mfa_enabled
+ */
 final class User extends Authenticatable implements CanResetPassword
 {
     use CanResetPasswordTrait;
@@ -53,11 +64,17 @@ final class User extends Authenticatable implements CanResetPassword
         ];
     }
 
+    /**
+     * @return BelongsTo<Entity, $this>
+     */
     public function activeEntity(): BelongsTo
     {
         return $this->belongsTo(Entity::class, 'active_entity_id');
     }
 
+    /**
+     * @return BelongsToMany<Entity, $this>
+     */
     public function entities(): BelongsToMany
     {
         return $this->belongsToMany(Entity::class, 'identity_entity_user')
@@ -65,6 +82,9 @@ final class User extends Authenticatable implements CanResetPassword
             ->withTimestamps();
     }
 
+    /**
+     * @return BelongsToMany<Role, $this>
+     */
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class, 'identity_role_user')

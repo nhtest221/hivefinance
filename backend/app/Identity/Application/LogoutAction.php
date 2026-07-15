@@ -13,6 +13,7 @@ final class LogoutAction
     {
         $token = $user->currentAccessToken();
 
+        /** @phpstan-ignore-next-line Transient Sanctum test tokens do not expose delete(). */
         if ($token !== null && method_exists($token, 'delete')) {
             $token->delete();
         }

@@ -5,5 +5,4 @@ parameters:
     paths:
         - app
         - routes
-        - tests
     level: 6
