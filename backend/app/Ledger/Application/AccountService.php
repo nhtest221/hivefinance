@@ -24,7 +24,7 @@ final readonly class AccountService
     public function create(User $actor, string $entityId, array $data): LedgerActionResult
     {
         $permission = 'ledger.accounts.manage';
-        if (!$this->authorization->can($actor, $entityId, $permission)) {
+        if ($this->authorization->can($actor, $entityId, $permission) === false) {
             return $this->authorization->denyResponse($permission);
         }
 
@@ -63,12 +63,12 @@ final readonly class AccountService
     public function update(User $actor, string $entityId, string $accountId, array $data): LedgerActionResult
     {
         $permission = 'ledger.accounts.manage';
-        if (!$this->authorization->can($actor, $entityId, $permission)) {
+        if ($this->authorization->can($actor, $entityId, $permission) === false) {
             return $this->authorization->denyResponse($permission);
         }
 
         $account = LedgerAccount::query()->where('entity_id', $entityId)->find($accountId);
-        if (!$account instanceof LedgerAccount) {
+        if (($account instanceof LedgerAccount) === false) {
             return $this->notFound();
         }
 
@@ -100,12 +100,12 @@ final readonly class AccountService
     public function deactivate(User $actor, string $entityId, string $accountId): LedgerActionResult
     {
         $permission = 'ledger.accounts.manage';
-        if (!$this->authorization->can($actor, $entityId, $permission)) {
+        if ($this->authorization->can($actor, $entityId, $permission) === false) {
             return $this->authorization->denyResponse($permission);
         }
 
         $account = LedgerAccount::query()->where('entity_id', $entityId)->find($accountId);
-        if (!$account instanceof LedgerAccount) {
+        if (($account instanceof LedgerAccount) === false) {
             return $this->notFound();
         }
 
@@ -127,7 +127,7 @@ final readonly class AccountService
     public function list(User $actor, string $entityId, string $status = 'active', int $limit = 50, mixed $cursor = null): LedgerActionResult
     {
         $permission = 'ledger.accounts.read';
-        if (!$this->authorization->can($actor, $entityId, $permission)) {
+        if ($this->authorization->can($actor, $entityId, $permission) === false) {
             return $this->authorization->denyResponse($permission);
         }
 
