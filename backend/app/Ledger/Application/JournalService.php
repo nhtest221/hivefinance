@@ -2,9 +2,9 @@
 
 namespace App\Ledger\Application;
 
+use App\Identity\Application\EntityReferenceQuery;
 use App\Ledger\Domain\DecimalAmount;
 use App\Models\IdempotencyRecord;
-use App\Identity\Application\EntityReferenceQuery;
 use App\Models\Ledger\JournalEntry;
 use App\Models\Ledger\LedgerAccount;
 use App\Models\OutboxMessage;
@@ -25,7 +25,8 @@ final readonly class JournalService
         private AuditLogger $audit,
         private Outbox $outbox,
         private EntityReferenceQuery $entities,
-    ) {}
+    ) {
+    }
 
     /**
      * @param  array<string, mixed>  $data
@@ -37,7 +38,7 @@ final readonly class JournalService
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
+        if ($idempotencyKey === null || !Str::isUuid($idempotencyKey)) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
         $operation = 'POST /v1/journals';
@@ -104,7 +105,7 @@ final readonly class JournalService
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
+        if ($idempotencyKey === null || !Str::isUuid($idempotencyKey)) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
         if ($ifMatch === null || preg_match('/^\d+$/', $ifMatch) !== 1) {

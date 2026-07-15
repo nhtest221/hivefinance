@@ -2,9 +2,9 @@
 
 namespace App\Providers;
 
-use App\Numbering\Application\SequenceRepository;
 use App\Identity\Application\EntityReferenceQuery;
 use App\Identity\Infrastructure\EloquentEntityReferenceQuery;
+use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;

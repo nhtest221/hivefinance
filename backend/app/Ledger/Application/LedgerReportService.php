@@ -11,7 +11,9 @@ use Illuminate\Database\Eloquent\Collection;
 
 final readonly class LedgerReportService
 {
-    public function __construct(private LedgerAuthorizationService $authorization, private EntityReferenceQuery $entities) {}
+    public function __construct(private LedgerAuthorizationService $authorization, private EntityReferenceQuery $entities)
+    {
+    }
 
     public function accountBalance(User $actor, string $entityId, string $accountId, ?string $asOf): LedgerActionResult
     {
@@ -101,7 +103,7 @@ final readonly class LedgerReportService
         }
         $decoded = base64_decode($cursor, true);
         $value = $decoded === false ? null : json_decode($decoded, true);
-        if (! is_array($value) || ! isset($value['offset'], $value['boundary']) || ! is_int($value['offset']) || ! is_string($value['boundary'])) {
+        if (!is_array($value) || !isset($value['offset'], $value['boundary']) || !is_int($value['offset']) || !is_string($value['boundary'])) {
             return null;
         }
         return ['offset' => $value['offset'], 'boundary' => $value['boundary']];

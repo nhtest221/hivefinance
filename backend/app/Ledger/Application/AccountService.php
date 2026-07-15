@@ -6,8 +6,8 @@ use App\Models\Ledger\LedgerAccount;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Pagination\Cursor;
+use Illuminate\Support\Facades\DB;
 
 final readonly class AccountService
 {
@@ -15,7 +15,8 @@ final readonly class AccountService
         private LedgerAuthorizationService $authorization,
         private AuditLogger $audit,
         private Outbox $outbox,
-    ) {}
+    ) {
+    }
 
     /**
      * @param  array<string, mixed>  $data
