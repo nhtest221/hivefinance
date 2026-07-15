@@ -4,7 +4,7 @@ Branch: `codex/m2-ledger-core`
 
 ## Status
 
-Implementation work for Milestone M2 is complete for review. The branch has not been pushed.
+Implementation work for Milestone M2 is complete for review.
 
 Backend local validation is blocked in this environment because `php`, `composer`, `docker`, and `backend/vendor` are unavailable locally. Frontend validation completed successfully.
 
@@ -73,9 +73,10 @@ Blocked locally:
 
 - `8cba62b` — `feat(backend): implement ledger core foundation`
 - `b29dc18` — `feat(frontend): add ledger core screens`
+- `d0bd702` — `docs: add M2 completion report`
 
 ## Not Included
 
 - No Receivables, Payables, Settlement, Tax, FX, Reconciliation, Migration, or M3 business logic.
 - No changes to frozen architecture documents.
-- No backend CI confirmation, because the branch was not pushed per instruction.
+- Backend CI confirmation is handled through the GitHub Pull Request review workflow.
