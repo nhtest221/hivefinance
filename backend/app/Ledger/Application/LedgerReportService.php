@@ -18,12 +18,12 @@ final readonly class LedgerReportService
     public function accountBalance(User $actor, string $entityId, string $accountId, ?string $asOf): LedgerActionResult
     {
         $permission = 'ledger.reports.read';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
         $account = LedgerAccount::query()->where('entity_id', $entityId)->find($accountId);
-        if (! $account instanceof LedgerAccount) {
+        if (!$account instanceof LedgerAccount) {
             return new LedgerActionResult(['error_code' => 'not_found', 'message' => 'The account was not found.', 'details' => []], 404);
         }
 
@@ -40,12 +40,12 @@ final readonly class LedgerReportService
     public function generalLedger(User $actor, string $entityId, string $accountId, ?string $from, ?string $to, int $limit = 50, ?string $cursor = null): LedgerActionResult
     {
         $permission = 'ledger.reports.read';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
         $account = LedgerAccount::query()->where('entity_id', $entityId)->find($accountId);
-        if (! $account instanceof LedgerAccount) {
+        if (!$account instanceof LedgerAccount) {
             return new LedgerActionResult(['error_code' => 'not_found', 'message' => 'The account was not found.', 'details' => []], 404);
         }
         $cursorState = $this->decodeCursor($cursor);
@@ -103,7 +103,7 @@ final readonly class LedgerReportService
         }
         $decoded = base64_decode($cursor, true);
         $value = $decoded === false ? null : json_decode($decoded, true);
-        if (! is_array($value) || ! isset($value['offset'], $value['boundary']) || ! is_int($value['offset']) || ! is_string($value['boundary'])) {
+        if (!is_array($value) || !isset($value['offset'], $value['boundary']) || !is_int($value['offset']) || !is_string($value['boundary'])) {
             return null;
         }
         return ['offset' => $value['offset'], 'boundary' => $value['boundary']];
@@ -112,7 +112,7 @@ final readonly class LedgerReportService
     public function trialBalance(User $actor, string $entityId, ?string $asOf): LedgerActionResult
     {
         $permission = 'ledger.reports.read';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 

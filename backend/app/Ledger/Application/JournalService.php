@@ -34,11 +34,11 @@ final readonly class JournalService
     public function createDraft(User $actor, string $entityId, array $data, ?string $idempotencyKey): LedgerActionResult
     {
         $permission = 'ledger.journals.create';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
+        if ($idempotencyKey === null || !Str::isUuid($idempotencyKey)) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
         $operation = 'POST /v1/journals';
@@ -101,11 +101,11 @@ final readonly class JournalService
     public function post(User $actor, string $entityId, string $journalId, ?string $idempotencyKey, ?string $ifMatch): LedgerActionResult
     {
         $permission = 'ledger.journals.post';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
+        if ($idempotencyKey === null || !Str::isUuid($idempotencyKey)) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
         if ($ifMatch === null || preg_match('/^\d+$/', $ifMatch) !== 1) {
@@ -119,7 +119,7 @@ final readonly class JournalService
         }
 
         $journal = JournalEntry::query()->with('lines')->where('entity_id', $entityId)->find($journalId);
-        if (! $journal instanceof JournalEntry) {
+        if (!$journal instanceof JournalEntry) {
             return $this->notFound();
         }
         if ($journal->version !== (int) $ifMatch) {
@@ -179,7 +179,7 @@ final readonly class JournalService
     public function reverse(User $actor, string $entityId, string $journalId, array $data, ?string $idempotencyKey): LedgerActionResult
     {
         $permission = 'ledger.journals.reverse';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
@@ -193,7 +193,7 @@ final readonly class JournalService
         }
 
         $original = JournalEntry::query()->with('lines')->where('entity_id', $entityId)->find($journalId);
-        if (! $original instanceof JournalEntry) {
+        if (!$original instanceof JournalEntry) {
             return $this->notFound();
         }
 
@@ -260,7 +260,7 @@ final readonly class JournalService
     public function list(User $actor, string $entityId, ?string $accountId, ?string $periodRef, ?string $state): LedgerActionResult
     {
         $permission = 'ledger.journals.read';
-        if (! $this->authorization->can($actor, $entityId, $permission)) {
+        if (!$this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
@@ -298,7 +298,7 @@ final readonly class JournalService
                 ->where('status', 'active')
                 ->exists();
 
-            if (! $accountExists) {
+            if (!$accountExists) {
                 return $this->validation('Each journal line must reference an active account in the entity.', ['account_id' => $line['account_id'] ?? null]);
             }
 
@@ -321,7 +321,7 @@ final readonly class JournalService
             $credits = $credits->add($credit);
         }
 
-        if (! $debits->equals($credits)) {
+        if (!$debits->equals($credits)) {
             return $this->validation('Journal debits must equal credits.', [
                 'rule' => 'balanced_journal',
                 'debits' => $debits->toString(),
