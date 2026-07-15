@@ -42,6 +42,9 @@ final class JournalLine extends Model
     {
         return [
             'line_no' => 'integer',
+            'debit' => 'decimal:4',
+            'credit' => 'decimal:4',
+            'fx_amount' => 'decimal:4',
         ];
     }
 
