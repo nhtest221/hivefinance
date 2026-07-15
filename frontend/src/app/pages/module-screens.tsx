@@ -1,5 +1,5 @@
-import { Alert, Badge, Button, Card, CardContent, CardHeader, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
-import { accounts, auditRows, banks, fxRates, journals, payables, receivables, reports, settlements, taxCodes } from '../mock-data'
+import { Alert, Badge, Button, Card, CardContent, CardHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { accountingPeriods, accounts, auditRows, banks, fxRates, journals, payables, receivables, reports, settlements, taxCodes, trialBalanceRows } from '../mock-data'
 import { ModulePage } from './module-page'
 
 export function ChartOfAccountsPage() {
@@ -15,6 +15,7 @@ export function ChartOfAccountsPage() {
         { label: 'Bank accounts', value: '7', meta: 'Ledger-owned master data' },
         { label: 'Inactive accounts', value: '4', meta: 'Preserved for audit' },
       ]}
+      aside={<ChartOfAccountsAside />}
     />
   )
 }
@@ -32,6 +33,7 @@ export function JournalEntriesPage() {
         { label: 'Draft entries', value: '3', meta: 'Not posted' },
         { label: 'Reversals', value: '2', meta: 'Linked corrections' },
       ]}
+      aside={<JournalAside />}
     />
   )
 }
@@ -175,6 +177,54 @@ export function ReportsPage() {
   )
 }
 
+function ChartOfAccountsAside() {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Account governance</h2>
+          <Badge variant="info">M2</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <Alert>Balances are derived from immutable posted journal lines.</Alert>
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between"><span className="text-[var(--color-text-muted)]">Code uniqueness</span><span>Per entity</span></div>
+          <div className="flex items-center justify-between"><span className="text-[var(--color-text-muted)]">Type changes</span><span>No postings only</span></div>
+          <div className="flex items-center justify-between"><span className="text-[var(--color-text-muted)]">Deactivation</span><span>Soft only</span></div>
+        </div>
+        <Button variant="secondary" className="w-full">New account</Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function JournalAside() {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Posting controls</h2>
+          <Badge variant="warning">Draft first</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md border border-[var(--color-border)] p-3">
+          <p className="text-xs font-medium uppercase text-[var(--color-text-subtle)]">Validation</p>
+          <p className="mt-2 text-sm">Debits and credits must balance before posting. Posted entries are immutable; corrections use reversal entries.</p>
+        </div>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between"><span>Period</span><Badge variant="success">FY26-P01 open</Badge></div>
+          <div className="flex items-center justify-between"><span>Idempotency</span><Badge variant="info">Required</Badge></div>
+          <div className="flex items-center justify-between"><span>Audit event</span><Badge>JournalPosted</Badge></div>
+        </div>
+        <Button className="w-full">Create manual journal</Button>
+        <Button variant="secondary" className="w-full">Reverse selected</Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsPage() {
   return (
     <ModulePage
@@ -225,6 +275,26 @@ function ReportAside() {
         <div className="flex items-center justify-between"><span>Balance Sheet</span><Badge>Balance</Badge></div>
         <div className="flex items-center justify-between"><span>Tax Summary</span><Badge variant="info">Accrual only</Badge></div>
         <div className="flex items-center justify-between"><span>Cash View</span><Badge variant="warning">Derived</Badge></div>
+        <div className="rounded-md border border-[var(--color-border)]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Account</TableHead>
+                <TableHead>Debit</TableHead>
+                <TableHead>Credit</TableHead>
+              </TableRow>
+            </TableHeader>
+            <tbody>
+              {trialBalanceRows.slice(0, 3).map((row) => (
+                <TableRow key={row[0]}>
+                  <TableCell>{row[0]}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row[2]}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row[3]}</TableCell>
+                </TableRow>
+              ))}
+            </tbody>
+          </Table>
+        </div>
         <Button variant="secondary" className="w-full">Preview export</Button>
       </CardContent>
     </Card>
@@ -246,7 +316,16 @@ function SettingsAside() {
           </TabsList>
           <TabsContent value="entity" className="mt-4 text-sm text-[var(--color-text-muted)]">Legal entity and fiscal configuration placeholders.</TabsContent>
           <TabsContent value="access" className="mt-4 text-sm text-[var(--color-text-muted)]">Roles, SoD, delegation, and MFA placeholders.</TabsContent>
-          <TabsContent value="periods" className="mt-4 text-sm text-[var(--color-text-muted)]">Open, soft close, hard close, and reopen placeholders.</TabsContent>
+          <TabsContent value="periods" className="mt-4">
+            <div className="space-y-2 text-sm">
+              {accountingPeriods.map((period) => (
+                <div className="flex items-center justify-between gap-3" key={period[0]}>
+                  <span className="font-medium">{period[0]}</span>
+                  <span className="text-right text-[var(--color-text-muted)]">{period[3]}</span>
+                </div>
+              ))}
+            </div>
+          </TabsContent>
         </Tabs>
       </CardContent>
     </Card>
