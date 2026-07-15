@@ -124,4 +124,4 @@ Projection/notification updates are **outside** these UoWs (eventual, via outbox
 - **Concurrency:** ✔ optimistic everywhere except the Sequence serialized draw.
 - **No domain change; no weakness discovered.**
 
-**Repository Contracts complete. Proceeding directly to Database Design.**
+**Repository Contracts complete.**

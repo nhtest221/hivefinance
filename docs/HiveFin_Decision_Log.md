@@ -1,7 +1,7 @@
 # HiveFin — Decision Log (Architecture & Accounting Decision Records)
 
-This log captures the binding decisions made during the pre-architecture Decision Workshop.
-Each entry supersedes any conflicting statement in SRS v2.0. Resolve the SRS to a new version once the workshop concludes.
+This log is the authoritative ADR register for HiveFin. It captures the binding decisions made during the pre-architecture Decision Workshop.
+Each entry supersedes any conflicting statement in SRS v2.0; the current requirements baseline is SRS v3.0.
 
 ---
 

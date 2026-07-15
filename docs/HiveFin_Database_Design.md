@@ -146,5 +146,3 @@
 - **No domain weakness discovered; no business rule or invariant altered.**
 
 **Database Design complete.**
-
-*(Stopping per instruction — awaiting your review before API Contracts.)*

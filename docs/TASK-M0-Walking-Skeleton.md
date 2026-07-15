@@ -3,7 +3,7 @@
 **Project:** HiveFinance
 **Milestone:** M0 — Walking Skeleton
 **Governance:** Engineering Constitution v1.0 (binding). All rule IDs (e.g. `ARCH-04`, `DOM-04`) reference that document.
-**Business source of truth (frozen):** SRS v3.0, ADR-001…ADR-009, Domain Model v2, Context Map, Aggregate Design, Context Interaction Matrix, Domain Events, Repository Contracts, Database Design, API Contracts, Implementation Roadmap, AP-001.
+**Business source of truth (frozen):** SRS v3.0, ADR register (`HiveFin_Decision_Log.md`, ADR-001…ADR-009), Domain Model v2, Context Map, Aggregate Design, Context Interaction Matrix, Domain Events, Repository Contracts, Database Design, API Contracts, Implementation Roadmap, AP-001.
 **Nature of this document:** An executable work package. Agents implement against the frozen artifacts verbatim and **never invent** rules, fields, or invariants (`P-02`, `AGENT-01`). On ambiguity or contradiction: **stop and ask** (`P-03`, `AGENT-02`).
 
 ---

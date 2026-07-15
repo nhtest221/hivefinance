@@ -1,6 +1,6 @@
 # HiveFin — Implementation Roadmap (Modular Monolith, Multi-Agent)
 
-**Frozen inputs (immutable):** SRS v3.0 · ADR-001…009 · Domain Model · Interaction Matrix · AP-001 · Context Map · Aggregate Design · Domain Events · Repository Contracts · Database Design.
+**Frozen inputs (immutable):** SRS v3.0 · ADR register (`HiveFin_Decision_Log.md`, ADR-001…ADR-009) · Domain Model v2 · Context Interaction Matrix · AP-001 · Context Map · Aggregate Design · Domain Events · Repository Contracts · Database Design.
 **Objective:** translate the architecture into incremental, parallelizable phases so multiple coding agents build simultaneously without violating the frozen architecture.
 **Organizing rule:** **context = agent = deployable module = schema.** Cross-context work happens only through frozen application-service interfaces and event schemas.
 
@@ -196,4 +196,4 @@ A phase is Done when **all** hold:
 
 ---
 
-**Roadmap complete. Proceeding directly to API Contracts.**
+**Roadmap complete.**

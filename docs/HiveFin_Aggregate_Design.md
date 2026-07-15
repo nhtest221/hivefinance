@@ -1,7 +1,7 @@
 # HiveFin — Aggregate Design (Phase 1: Five Highest-Risk Aggregates)
 
 **Frozen inputs (immutable):** SRS v3.0 · ADR-001…009 · Domain Model v2 · Interaction Matrix · AP-001 · Context Map.
-**Contradiction check:** no business-rule contradiction. One architectural refinement to the Context Map's Partnership integration is surfaced and flagged for approval (§0.3) — an *addition*, not a reversal.
+**Contradiction check:** no business-rule contradiction. One architectural refinement to the Context Map's Partnership integration is ratified in §0.3 — an *addition*, not a reversal.
 **Scope:** JournalEntry · Allocation (+PartyCreditBalance) · ReceivableDocument · PayableDocument · LedgerAccount. Remaining aggregates follow after review.
 **Optimise for:** correctness, auditability, maintainability — not normalisation.
 
@@ -210,5 +210,4 @@ Reporting owns **read models / projections** (TrialBalance, GeneralLedger, Profi
 - **Aggregate sizing:** each challenged for too-large/too-small; balances excluded from LedgerAccount; PartyCreditBalance/Customer/Vendor kept separate from documents; document+lines kept together for their balance/tax invariants.
 - **No contradiction, no AP-001 violation, no unresolved major risk** discovered.
 
-**Aggregate Design is complete and internally consistent.** Proceeding directly to **Domain Events** (per instruction).
-
+**Aggregate Design is complete and internally consistent.**

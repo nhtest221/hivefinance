@@ -1,6 +1,6 @@
 # HiveFin — API Contracts (Public / Frontend-Facing)
 
-**Frozen inputs (immutable):** all prior artifacts through the Implementation Roadmap.
+**Frozen inputs (immutable):** SRS v3.0 · ADR register (`HiveFin_Decision_Log.md`, ADR-001…ADR-009) · AP-001 · Domain Model · Context Interaction Matrix · Context Map · Aggregate Design · Domain Events · Repository Contracts · Database Design · Implementation Roadmap.
 **Scope:** the **public API** consumed by the frontend. **Internal cross-context application services** (`ApplySettlement`, `PostingService`, migration import, reconciliation entry requests) are **in-process, not HTTP** — they are not exposed here (AP-001; they remain internal contracts from the Aggregate/Repository docs).
 **Rule:** API conforms to the domain. **No domain weakness discovered** during API design (maker-checker, SoD, and period-lock all expressed cleanly as protocol semantics — §3).
 
@@ -174,5 +174,3 @@ POST /v1/invoices/{id}/issue   If-Match: 3
 - **No business rule introduced or modified; no contradiction; no AP-001 violation; no weakness discovered.**
 
 **API Contracts complete.**
-
-*(Stopping per instruction — awaiting your review before continuing.)*
