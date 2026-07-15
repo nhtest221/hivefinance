@@ -15,17 +15,30 @@ export const cashTrend = [
 ]
 
 export const accounts = [
-  ['1010', 'Cash', 'Asset', 'Active', 'BDT 1.24M'],
+  ['1010', 'Cash in Bank - NRB', 'Asset', 'Active', 'BDT 12.80M'],
   ['1060', 'Accounts Receivable', 'Asset', 'Active', 'BDT 9.84M'],
   ['2010', 'Accounts Payable', 'Liability', 'Active', 'BDT 3.18M'],
-  ['4010', 'Client Service Revenue', 'Revenue', 'Active', 'BDT 42.1M'],
-  ['6220', 'FX Loss', 'Operating Expense', 'Active', 'BDT 0.18M'],
+  ['4010', 'Client Service Revenue', 'Revenue', 'Active', 'BDT 42.10M'],
+  ['6220', 'FX Loss', 'Expense', 'Active', 'BDT 0.18M'],
 ]
 
 export const journals = [
-  ['JE-2026-0714-001', 'System', 'Posted', 'InvoiceIssued', 'BDT 820,000', 'FY26-P01'],
-  ['JE-2026-0714-002', 'Manual', 'Draft', 'Accrual adjustment', 'BDT 120,000', 'FY26-P01'],
-  ['JE-2026-0713-009', 'System', 'Reversed', 'BillApproved', 'BDT 64,400', 'FY25-P12'],
+  ['JE-2026-0714-001', 'Manual', 'Posted', 'Revenue accrual', 'BDT 820,000.0000', 'FY26-P01'],
+  ['JE-2026-0714-002', 'Manual', 'Draft', 'Month-end accrual', 'BDT 120,000.0000', 'FY26-P01'],
+  ['JE-2026-0713-009', 'Reversal', 'Posted', 'Correction entry', 'BDT 64,400.0000', 'FY26-P01'],
+]
+
+export const accountingPeriods = [
+  ['FY26-P01', '1 Jul 2026', '31 Jul 2026', 'Open', 'Normal posting'],
+  ['FY25-P12', '1 Jun 2026', '30 Jun 2026', 'Hard closed', 'Corrections route forward'],
+  ['FY25-P11', '1 May 2026', '31 May 2026', 'Soft closed', 'Adjusting only'],
+]
+
+export const trialBalanceRows = [
+  ['1010', 'Cash in Bank - NRB', 'BDT 12,800,000.0000', 'BDT 0.0000'],
+  ['1060', 'Accounts Receivable', 'BDT 9,840,000.0000', 'BDT 0.0000'],
+  ['2010', 'Accounts Payable', 'BDT 0.0000', 'BDT 3,180,000.0000'],
+  ['4010', 'Client Service Revenue', 'BDT 0.0000', 'BDT 19,460,000.0000'],
 ]
 
 export const receivables = [

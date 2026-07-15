@@ -5,6 +5,10 @@ use App\Http\Controllers\Auth\EntitySessionController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\RoleController;
 use App\Http\Controllers\HealthCheckController;
+use App\Http\Controllers\Ledger\AccountController;
+use App\Http\Controllers\Ledger\JournalController;
+use App\Http\Controllers\Period\PeriodController;
+use App\Http\Controllers\Reports\LedgerReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthCheckController::class)->name('health');
@@ -25,4 +29,21 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/entities', [EntitySessionController::class, 'index'])->name('entities.index');
     Route::post('/entities/switch', [EntitySessionController::class, 'switch'])->name('entities.switch');
     Route::get('/roles', RoleController::class)->name('roles.index');
+
+    Route::get('/periods/postable', [PeriodController::class, 'postable'])->name('periods.postable');
+    Route::get('/periods/{ref}', [PeriodController::class, 'show'])->name('periods.show');
+
+    Route::get('/accounts', [AccountController::class, 'index'])->name('accounts.index');
+    Route::post('/accounts', [AccountController::class, 'store'])->name('accounts.store');
+    Route::patch('/accounts/{id}', [AccountController::class, 'update'])->name('accounts.update');
+    Route::post('/accounts/{id}/deactivate', [AccountController::class, 'deactivate'])->name('accounts.deactivate');
+    Route::get('/accounts/{id}/balance', [LedgerReportController::class, 'accountBalance'])->name('accounts.balance');
+
+    Route::get('/journals', [JournalController::class, 'index'])->name('journals.index');
+    Route::post('/journals', [JournalController::class, 'store'])->name('journals.store');
+    Route::post('/journals/{id}/post', [JournalController::class, 'post'])->name('journals.post');
+    Route::post('/journals/{id}/reverse', [JournalController::class, 'reverse'])->name('journals.reverse');
+
+    Route::get('/reports/trial-balance', [LedgerReportController::class, 'trialBalance'])->name('reports.trial-balance');
+    Route::get('/reports/general-ledger', [LedgerReportController::class, 'generalLedger'])->name('reports.general-ledger');
 });
