@@ -75,7 +75,23 @@ Local results:
 Local limitations:
 
 - PHP, Composer, Docker, and `backend/vendor` are unavailable in this shell.
-- PHP formatting, PHPStan, Rector, Pest, PostgreSQL migrations, API integration, outbox integration, and numbering persistence tests are therefore delegated to the required GitHub PR pipeline.
+- PHP tooling is therefore validated by the required GitHub PR pipeline.
+
+GitHub PR #3 pipeline, run `29411941069`:
+
+- Backend — passed in 1m 1s.
+  - Composer install and application bootstrap.
+  - PostgreSQL migration application.
+  - Laravel Pint.
+  - PHPStan/Larastan.
+  - Context-boundary guard.
+  - Rector dry run.
+  - Pest: 23 tests passed with 86 assertions, including journal API, numbering persistence, outbox rollback/delivery/replay, authz, audit, and ledger integration.
+- Frontend — passed in 27s.
+  - npm clean install.
+  - TypeScript typecheck.
+  - ESLint.
+  - Production build.
 
 Warnings:
 
@@ -92,4 +108,4 @@ No Tax, Currency & FX, Receivables, Payables, Settlement, Reconciliation, migrat
 
 ## Completion recommendation
 
-M0 can be marked complete only after the GitHub PR pipeline is green and human review confirms the approved API amendment and boundary enforcement. The next roadmap milestone after that is **M1 Ledger + Valuation** (Ledger, Tax, FX); this branch does not begin it.
+The required pipeline is green. M0 can now be marked complete after human review and approval of PR #3. The next roadmap milestone is **M1 Ledger + Valuation** (Ledger, Tax, FX); this branch does not begin it.
