@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\Period;
 
 use App\Ledger\Application\LedgerAuthorizationService;
-use App\Ledger\Application\PeriodService;
+use App\Period\Application\PeriodQuery;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 final class PeriodController
 {
-    public function show(Request $request, PeriodService $periods, LedgerAuthorizationService $authorization, string $ref): JsonResponse
+    public function show(Request $request, PeriodQuery $periods, LedgerAuthorizationService $authorization, string $ref): JsonResponse
     {
         $entityId = (string) $request->header('X-Entity-Id');
         $permission = 'periods.read';
@@ -37,7 +37,7 @@ final class PeriodController
         ]);
     }
 
-    public function postable(Request $request, PeriodService $periods, LedgerAuthorizationService $authorization): JsonResponse
+    public function postable(Request $request, PeriodQuery $periods, LedgerAuthorizationService $authorization): JsonResponse
     {
         $entityId = (string) $request->header('X-Entity-Id');
         $permission = 'periods.read';

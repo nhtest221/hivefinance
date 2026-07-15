@@ -21,6 +21,9 @@ final class Outbox
         array $metadata = [],
     ): OutboxMessage {
         $now = Carbon::now('UTC');
+        if (app()->bound('request') && request()->attributes->has('correlation_id')) {
+            $metadata['correlation_id'] = request()->attributes->get('correlation_id');
+        }
 
         return OutboxMessage::query()->create([
             'event_type' => $eventType,

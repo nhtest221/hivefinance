@@ -22,13 +22,20 @@ final class LedgerReportController
 
     public function generalLedger(Request $request, LedgerReportService $reports): JsonResponse
     {
+        $accountId = (string) $request->query('account');
         $range = $this->dateRange($request->query('range') !== null ? (string) $request->query('range') : null);
+        $limit = filter_var($request->query('limit', 50), FILTER_VALIDATE_INT);
+        if (! preg_match('/^[0-9a-f-]{36}$/i', $accountId) || $range['from'] === null || $range['to'] === null || $range['from'] > $range['to'] || $limit === false || $limit < 1 || $limit > 100) {
+            return response()->json(['error_code' => 'validation', 'message' => 'account, range, or limit is invalid.', 'details' => []], 400);
+        }
         $result = $reports->generalLedger(
             $request->user(),
             (string) $request->header('X-Entity-Id'),
-            (string) $request->query('account'),
+            $accountId,
             $range['from'],
             $range['to'],
+            $limit,
+            $request->query('cursor') !== null ? (string) $request->query('cursor') : null,
         );
 
         return response()->json($result->payload, $result->status);

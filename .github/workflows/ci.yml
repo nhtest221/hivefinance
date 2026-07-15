@@ -60,6 +60,9 @@ jobs:
       - name: PHPStan
         run: composer analyse
 
+      - name: Context boundary guards
+        run: composer boundaries
+
       - name: Rector
         run: composer refactor
 

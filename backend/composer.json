@@ -37,6 +37,7 @@
     "analyse": "phpstan analyse",
     "format": "pint",
     "refactor": "rector process --dry-run",
+    "boundaries": "php scripts/check-boundaries.php",
     "test": "pest"
   },
   "extra": {

@@ -2,10 +2,8 @@
 
 namespace App\Models\Ledger;
 
-use App\Models\Identity\Entity;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Override;
 
@@ -42,14 +40,6 @@ final class LedgerAccount extends Model
             'bank_attributes' => 'array',
             'version' => 'integer',
         ];
-    }
-
-    /**
-     * @return BelongsTo<Entity, $this>
-     */
-    public function entity(): BelongsTo
-    {
-        return $this->belongsTo(Entity::class);
     }
 
     /**

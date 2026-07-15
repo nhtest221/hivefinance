@@ -2,12 +2,9 @@
 
 namespace App\Models\Ledger;
 
-use App\Models\Identity\Entity;
-use App\Models\Period\AccountingPeriod;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Override;
@@ -56,22 +53,6 @@ final class JournalEntry extends Model
             'posted_at' => 'immutable_datetime',
             'version' => 'integer',
         ];
-    }
-
-    /**
-     * @return BelongsTo<Entity, $this>
-     */
-    public function entity(): BelongsTo
-    {
-        return $this->belongsTo(Entity::class);
-    }
-
-    /**
-     * @return BelongsTo<AccountingPeriod, $this>
-     */
-    public function period(): BelongsTo
-    {
-        return $this->belongsTo(AccountingPeriod::class, 'period_id');
     }
 
     /**
