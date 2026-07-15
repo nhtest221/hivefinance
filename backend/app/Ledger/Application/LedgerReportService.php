@@ -2,8 +2,8 @@
 
 namespace App\Ledger\Application;
 
-use App\Ledger\Domain\DecimalAmount;
 use App\Identity\Application\EntityReferenceQuery;
+use App\Ledger\Domain\DecimalAmount;
 use App\Models\Ledger\JournalLine;
 use App\Models\Ledger\LedgerAccount;
 use App\Models\User;
