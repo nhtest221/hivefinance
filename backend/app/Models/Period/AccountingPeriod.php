@@ -6,14 +6,15 @@ use App\Models\Identity\Entity;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Override;
 
 /**
  * @property string $id
  * @property string $entity_id
  * @property string $period_ref
- * @property \Illuminate\Support\Carbon $starts_on
- * @property \Illuminate\Support\Carbon $ends_on
+ * @property Carbon $starts_on
+ * @property Carbon $ends_on
  * @property string $state
  * @property string $vat_lock_status
  * @property int $version

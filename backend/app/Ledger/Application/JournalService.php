@@ -5,6 +5,7 @@ namespace App\Ledger\Application;
 use App\Ledger\Domain\DecimalAmount;
 use App\Models\Ledger\JournalEntry;
 use App\Models\Ledger\LedgerAccount;
+use App\Models\OutboxMessage;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
@@ -299,7 +300,7 @@ final readonly class JournalService
      */
     private function findOutboxReplay(string $eventType, string $aggregateId, string $idempotencyKey): ?array
     {
-        $event = \App\Models\OutboxMessage::query()
+        $event = OutboxMessage::query()
             ->where('event_type', $eventType)
             ->where('aggregate_id', $aggregateId)
             ->where('metadata->idempotency_key', $idempotencyKey)

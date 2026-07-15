@@ -7,10 +7,13 @@ use Stringable;
 
 final readonly class DecimalAmount implements Stringable
 {
-    private const SCALE = 4;
     private const FACTOR = 10000;
 
-    private function __construct(private int $units) {}
+    private const SCALE = 4;
+
+    private function __construct(private int $units)
+    {
+    }
 
     public static function zero(): self
     {
@@ -39,7 +42,7 @@ final readonly class DecimalAmount implements Stringable
         $fraction = str_pad($fraction, self::SCALE, '0');
         $units = ((int) $whole * self::FACTOR) + (int) $fraction;
 
-        return new self($negative ? -$units : $units);
+        return new self($negative ? - $units : $units);
     }
 
     public function add(self $amount): self
@@ -54,7 +57,7 @@ final readonly class DecimalAmount implements Stringable
 
     public function negate(): self
     {
-        return new self(-$this->units);
+        return new self(- $this->units);
     }
 
     public function isZero(): bool

@@ -4,10 +4,12 @@ namespace App\Models\Ledger;
 
 use App\Models\Identity\Entity;
 use App\Models\Period\AccountingPeriod;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Override;
 
 /**
@@ -16,14 +18,14 @@ use Override;
  * @property string $period_ref
  * @property string $entry_type
  * @property string $state
- * @property \Illuminate\Support\Carbon $entry_date
+ * @property Carbon $entry_date
  * @property string|null $narration
  * @property string|null $reference
  * @property string|null $reversal_of_entry_id
- * @property \Illuminate\Support\Carbon|null $posted_at
+ * @property Carbon|null $posted_at
  * @property string|null $posted_by
  * @property int $version
- * @property \Illuminate\Database\Eloquent\Collection<int, JournalLine> $lines
+ * @property Collection<int, JournalLine> $lines
  */
 final class JournalEntry extends Model
 {
