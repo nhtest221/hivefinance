@@ -48,11 +48,14 @@ return new class extends Migration
 
             $table->foreign('entity_id')->references('id')->on('identity_entities')->cascadeOnDelete();
             $table->foreign('period_id')->references('id')->on('accounting_periods')->nullOnDelete();
-            $table->foreign('reversal_of_entry_id')->references('id')->on('journal_entries')->nullOnDelete();
             $table->index(['entity_id', 'period_ref']);
             $table->index(['entity_id', 'state']);
             $table->index(['source_document_id']);
             $table->index(['reversal_of_entry_id']);
+        });
+
+        Schema::table('journal_entries', function (Blueprint $table): void {
+            $table->foreign('reversal_of_entry_id')->references('id')->on('journal_entries')->nullOnDelete();
         });
 
         Schema::create('journal_lines', function (Blueprint $table): void {
