@@ -11,7 +11,8 @@ final readonly class IdentityActionResult
         public bool $ok,
         public int $status,
         public array $payload,
-    ) {}
+    )
+    {}
 
     /**
      * @param array<string, mixed> $payload
