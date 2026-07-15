@@ -54,10 +54,12 @@ final readonly class LedgerReportService
         if (($account instanceof LedgerAccount) === false) {
             return new LedgerActionResult(['error_code' => 'not_found', 'message' => 'The account was not found.', 'details' => []], 404);
         }
+
         $cursorState = $this->decodeCursor($cursor);
         if ($cursor !== null && $cursorState === null) {
             return new LedgerActionResult(['error_code' => 'validation', 'message' => 'The cursor is invalid.', 'details' => []], 400);
         }
+
         $boundary = $cursorState['boundary'] ?? now('UTC')->toISOString();
         $offset = $cursorState['offset'] ?? 0;
         $lines = JournalLine::query()
@@ -76,6 +78,7 @@ final readonly class LedgerReportService
         $running = $opening;
         $presented = $lines->map(function (JournalLine $line) use (&$running): array {
             $running = $running->add(DecimalAmount::fromString($line->debit))->subtract(DecimalAmount::fromString($line->credit));
+
             return [
                 'journal_entry_id' => $line->journal_entry_id, 'line_id' => $line->id,
                 'entry_date' => $line->journalEntry->entry_date->toDateString(), 'reference' => $line->journalEntry->reference,
@@ -112,6 +115,7 @@ final readonly class LedgerReportService
         if (is_array($value) === false || isset($value['offset'], $value['boundary']) === false || is_int($value['offset']) === false || is_string($value['boundary']) === false) {
             return null;
         }
+
         return ['offset' => $value['offset'], 'boundary' => $value['boundary']];
     }
 

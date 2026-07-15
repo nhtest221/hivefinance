@@ -56,12 +56,14 @@ final readonly class JournalService
         if ($idempotencyKey === null || Str::isUuid($idempotencyKey) === false) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
+
         $operation = 'POST /v1/journals';
         $hash = hash('sha256', json_encode($data, JSON_THROW_ON_ERROR));
         $replay = $this->idempotencyReplay($actor->id, $entityId, $operation, $idempotencyKey, $hash);
         if ($replay instanceof LedgerActionResult) {
             return $replay;
         }
+
         $period = $this->periods->findForDate($entityId, (string) $data['entry_date']);
         if ($period === null) {
             return $this->validation('The journal date must belong to a valid fiscal period.', ['field' => 'entry_date']);
@@ -107,6 +109,7 @@ final readonly class JournalService
                 'idempotency_key' => $idempotencyKey, 'request_hash' => $hash,
                 'response_status' => 201, 'response_body' => $response,
             ]);
+
             return $response;
         });
 
@@ -123,9 +126,11 @@ final readonly class JournalService
         if ($idempotencyKey === null || Str::isUuid($idempotencyKey) === false) {
             return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
+
         if ($ifMatch === null || preg_match('/^\d+$/', $ifMatch) !== 1) {
             return $this->validation('If-Match must be the current integer version.', ['header' => 'If-Match'], 400);
         }
+
         $operation = 'POST /v1/journals/'.$journalId.'/post';
         $hash = hash('sha256', $journalId.'|'.$ifMatch);
         $replay = $this->idempotencyReplay($actor->id, $entityId, $operation, $idempotencyKey, $hash);
@@ -137,6 +142,7 @@ final readonly class JournalService
         if (($journal instanceof JournalEntry) === false) {
             return $this->notFound();
         }
+
         if ($journal->version !== (int) $ifMatch) {
             return new LedgerActionResult(['error_code' => 'concurrency_conflict', 'message' => 'The journal version has changed.', 'details' => [], 'required_version' => $journal->version], 409);
         }
@@ -182,6 +188,7 @@ final readonly class JournalService
                 'idempotency_key' => $idempotencyKey, 'request_hash' => $hash,
                 'response_status' => 200, 'response_body' => $response,
             ]);
+
             return $response;
         });
 
