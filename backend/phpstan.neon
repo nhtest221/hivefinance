@@ -7,4 +7,3 @@ parameters:
         - routes
         - tests
     level: 6
-    checkMissingIterableValueType: false
