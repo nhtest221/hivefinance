@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
@@ -20,7 +21,7 @@ use Laravel\Sanctum\HasApiTokens;
  * @property string $password
  * @property string $status
  * @property string|null $active_entity_id
- * @property \Illuminate\Support\Carbon|null $locked_until
+ * @property Carbon|null $locked_until
  * @property bool $mfa_required
  * @property bool $mfa_enabled
  */
