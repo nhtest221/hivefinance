@@ -3,46 +3,60 @@
 namespace App\Ledger\Application;
 
 use App\Ledger\Domain\DecimalAmount;
+use App\Models\IdempotencyRecord;
+use App\Identity\Application\EntityReferenceQuery;
 use App\Models\Ledger\JournalEntry;
 use App\Models\Ledger\LedgerAccount;
 use App\Models\OutboxMessage;
 use App\Models\User;
+use App\Period\Application\PeriodQuery;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 final readonly class JournalService
 {
     public function __construct(
         private LedgerAuthorizationService $authorization,
-        private PeriodService $periods,
+        private PeriodQuery $periods,
         private AuditLogger $audit,
         private Outbox $outbox,
+        private EntityReferenceQuery $entities,
     ) {}
 
     /**
      * @param  array<string, mixed>  $data
      */
-    public function createDraft(User $actor, string $entityId, array $data): LedgerActionResult
+    public function createDraft(User $actor, string $entityId, array $data, ?string $idempotencyKey): LedgerActionResult
     {
         $permission = 'ledger.journals.create';
         if (! $this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
+        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
+            return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
+        }
+        $operation = 'POST /v1/journals';
+        $hash = hash('sha256', json_encode($data, JSON_THROW_ON_ERROR));
+        $replay = $this->idempotencyReplay($actor->id, $entityId, $operation, $idempotencyKey, $hash);
+        if ($replay instanceof LedgerActionResult) {
+            return $replay;
+        }
         $period = $this->periods->findForDate($entityId, (string) $data['entry_date']);
         if ($period === null) {
-            return $this->periodLocked('No accounting period exists for the journal date.');
+            return $this->validation('The journal date must belong to a valid fiscal period.', ['field' => 'entry_date']);
         }
 
-        $validation = $this->validateLines($entityId, $data['lines']);
+        $validation = $this->validateLines($entityId, $data['lines'], $this->entities->functionalCurrency($entityId));
         if ($validation instanceof LedgerActionResult) {
             return $validation;
         }
 
-        $journal = DB::transaction(function () use ($actor, $entityId, $data, $period): JournalEntry {
+        $payload = DB::transaction(function () use ($actor, $entityId, $data, $period, $operation, $idempotencyKey, $hash): array {
             $journal = JournalEntry::query()->create([
                 'entity_id' => $entityId,
                 'period_id' => $period->id,
@@ -60,9 +74,9 @@ final readonly class JournalService
                     'account_id' => $line['account_id'],
                     'line_no' => $index + 1,
                     'description' => $line['description'] ?? null,
-                    'debit' => DecimalAmount::fromString($line['debit'] ?? '0')->toString(),
-                    'credit' => DecimalAmount::fromString($line['credit'] ?? '0')->toString(),
-                    'currency' => $line['currency'],
+                    'debit' => DecimalAmount::fromString($line['debit']['amount'] ?? '0')->toString(),
+                    'credit' => DecimalAmount::fromString($line['credit']['amount'] ?? '0')->toString(),
+                    'currency' => $line['debit']['currency'] ?? $line['credit']['currency'],
                 ]);
             }
 
@@ -71,31 +85,44 @@ final readonly class JournalService
                 'line_count' => count($data['lines']),
             ]);
 
-            return $journal->load('lines');
+            $response = ['journal' => $this->present($journal->load('lines'))];
+            IdempotencyRecord::query()->create([
+                'actor_id' => $actor->id, 'entity_id' => $entityId, 'operation' => $operation,
+                'idempotency_key' => $idempotencyKey, 'request_hash' => $hash,
+                'response_status' => 201, 'response_body' => $response,
+            ]);
+            return $response;
         });
 
-        return new LedgerActionResult(['journal' => $this->present($journal)], 201);
+        return new LedgerActionResult($payload, 201);
     }
 
-    public function post(User $actor, string $entityId, string $journalId, ?string $idempotencyKey): LedgerActionResult
+    public function post(User $actor, string $entityId, string $journalId, ?string $idempotencyKey, ?string $ifMatch): LedgerActionResult
     {
         $permission = 'ledger.journals.post';
         if (! $this->authorization->can($actor, $entityId, $permission)) {
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || $idempotencyKey === '') {
-            return $this->validation('Idempotency-Key header is required.', ['header' => 'Idempotency-Key']);
+        if ($idempotencyKey === null || ! Str::isUuid($idempotencyKey)) {
+            return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
-
-        $existingEvent = $this->findOutboxReplay('JournalPosted', $journalId, $idempotencyKey);
-        if ($existingEvent !== null) {
-            return new LedgerActionResult($existingEvent);
+        if ($ifMatch === null || preg_match('/^\d+$/', $ifMatch) !== 1) {
+            return $this->validation('If-Match must be the current integer version.', ['header' => 'If-Match'], 400);
+        }
+        $operation = 'POST /v1/journals/'.$journalId.'/post';
+        $hash = hash('sha256', $journalId.'|'.$ifMatch);
+        $replay = $this->idempotencyReplay($actor->id, $entityId, $operation, $idempotencyKey, $hash);
+        if ($replay instanceof LedgerActionResult) {
+            return $replay;
         }
 
         $journal = JournalEntry::query()->with('lines')->where('entity_id', $entityId)->find($journalId);
         if (! $journal instanceof JournalEntry) {
             return $this->notFound();
+        }
+        if ($journal->version !== (int) $ifMatch) {
+            return new LedgerActionResult(['error_code' => 'concurrency_conflict', 'message' => 'The journal version has changed.', 'details' => [], 'required_version' => $journal->version], 409);
         }
 
         if ($journal->state !== 'draft') {
@@ -113,15 +140,14 @@ final readonly class JournalService
 
         $validation = $this->validateLines($entityId, $journal->lines->map(fn ($line): array => [
             'account_id' => $line->account_id,
-            'debit' => $line->debit,
-            'credit' => $line->credit,
-            'currency' => $line->currency,
-        ])->all());
+            'debit' => DecimalAmount::fromString($line->debit)->isZero() ? null : ['amount' => $line->debit, 'currency' => $line->currency],
+            'credit' => DecimalAmount::fromString($line->credit)->isZero() ? null : ['amount' => $line->credit, 'currency' => $line->currency],
+        ])->all(), $this->entities->functionalCurrency($entityId));
         if ($validation instanceof LedgerActionResult) {
             return $validation;
         }
 
-        $journal = DB::transaction(function () use ($actor, $entityId, $journal, $idempotencyKey): JournalEntry {
+        $payload = DB::transaction(function () use ($actor, $entityId, $journal, $idempotencyKey, $operation, $hash): array {
             $journal->state = 'posted';
             $journal->posted_at = Carbon::now('UTC');
             $journal->posted_by = $actor->id;
@@ -134,10 +160,16 @@ final readonly class JournalService
             ]);
             $this->audit->record('ledger', 'journal_posted', 'journal_entry', $journal->id, $actor->id, $entityId, after: $payload);
 
-            return $journal->load('lines');
+            $response = ['journal' => $this->present($journal->load('lines'))];
+            IdempotencyRecord::query()->create([
+                'actor_id' => $actor->id, 'entity_id' => $entityId, 'operation' => $operation,
+                'idempotency_key' => $idempotencyKey, 'request_hash' => $hash,
+                'response_status' => 200, 'response_body' => $response,
+            ]);
+            return $response;
         });
 
-        return new LedgerActionResult(['journal' => $this->present($journal)]);
+        return new LedgerActionResult($payload);
     }
 
     /**
@@ -250,7 +282,7 @@ final readonly class JournalService
     /**
      * @param  array<int, array<string, mixed>>  $lines
      */
-    private function validateLines(string $entityId, array $lines): ?LedgerActionResult
+    private function validateLines(string $entityId, array $lines, ?string $functionalCurrency = null): ?LedgerActionResult
     {
         if (count($lines) < 2) {
             return $this->validation('A journal requires at least two lines.', ['rule' => 'minimum_two_lines']);
@@ -269,8 +301,12 @@ final readonly class JournalService
                 return $this->validation('Each journal line must reference an active account in the entity.', ['account_id' => $line['account_id'] ?? null]);
             }
 
-            $debit = DecimalAmount::fromString($line['debit'] ?? '0');
-            $credit = DecimalAmount::fromString($line['credit'] ?? '0');
+            $debit = DecimalAmount::fromString($line['debit']['amount'] ?? '0');
+            $credit = DecimalAmount::fromString($line['credit']['amount'] ?? '0');
+            $currency = $line['debit']['currency'] ?? $line['credit']['currency'] ?? null;
+            if ($functionalCurrency !== null && $currency !== $functionalCurrency) {
+                return $this->validation('Manual journal lines must use the entity functional currency.', ['rule' => 'functional_currency_only']);
+            }
 
             if ($debit->isPositive() && $credit->isPositive()) {
                 return $this->validation('A journal line cannot carry both debit and credit.', ['rule' => 'single_sided_line']);
@@ -339,11 +375,10 @@ final readonly class JournalService
     {
         return [
             'id' => $journal->id,
-            'entity_id' => $journal->entity_id,
             'period_ref' => $journal->period_ref,
             'entry_type' => $journal->entry_type,
             'entry_date' => $journal->entry_date->toDateString(),
-            'state' => $journal->state,
+            'state' => ucfirst($journal->state),
             'narration' => $journal->narration,
             'reference' => $journal->reference,
             'reversal_of_entry_id' => $journal->reversal_of_entry_id,
@@ -355,9 +390,8 @@ final readonly class JournalService
                 'account_id' => $line->account_id,
                 'line_no' => $line->line_no,
                 'description' => $line->description,
-                'debit' => $line->debit,
-                'credit' => $line->credit,
-                'currency' => $line->currency,
+                'debit' => DecimalAmount::fromString($line->debit)->isZero() ? null : ['amount' => $line->debit, 'currency' => $line->currency],
+                'credit' => DecimalAmount::fromString($line->credit)->isZero() ? null : ['amount' => $line->credit, 'currency' => $line->currency],
             ])->all(),
         ];
     }
@@ -365,13 +399,27 @@ final readonly class JournalService
     /**
      * @param  array<string, mixed>  $details
      */
-    private function validation(string $message, array $details): LedgerActionResult
+    private function validation(string $message, array $details, int $status = 422): LedgerActionResult
     {
         return new LedgerActionResult([
             'error_code' => 'invariant_violation',
             'message' => $message,
             'details' => $details,
-        ], 422);
+        ], $status);
+    }
+
+    private function idempotencyReplay(string $actorId, string $entityId, string $operation, string $key, string $hash): ?LedgerActionResult
+    {
+        $record = IdempotencyRecord::query()->where('actor_id', $actorId)->where('entity_id', $entityId)
+            ->where('operation', $operation)->where('idempotency_key', $key)->first();
+        if ($record === null) {
+            return null;
+        }
+        if ($record->request_hash !== $hash) {
+            return new LedgerActionResult(['error_code' => 'idempotency_conflict', 'message' => 'The idempotency key was used for another request.', 'details' => []], 409);
+        }
+
+        return new LedgerActionResult($record->response_body, $record->response_status, ['Idempotent-Replay' => 'true']);
     }
 
     private function periodLocked(string $message): LedgerActionResult
