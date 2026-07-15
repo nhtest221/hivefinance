@@ -59,8 +59,8 @@ final readonly class LedgerReportService
         $offset = $cursorState['offset'] ?? 0;
         $lines = JournalLine::query()
             ->with('journalEntry')
-            ->where('entity_id', $entityId)
-            ->where('account_id', $accountId)
+            ->where('journal_lines.entity_id', $entityId)
+            ->where('journal_lines.account_id', $accountId)
             ->whereHas('journalEntry', fn ($query) => $query->where('state', 'posted')->where('posted_at', '<=', $boundary)
                 ->when($from !== null, fn ($query) => $query->whereDate('entry_date', '>=', $from))
                 ->when($to !== null, fn ($query) => $query->whereDate('entry_date', '<=', $to)))
