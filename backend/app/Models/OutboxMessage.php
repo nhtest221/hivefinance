@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Override;
 
+/**
+ * @property string $id
+ * @property string $event_type
+ * @property array<string, mixed>|null $metadata
+ */
 final class OutboxMessage extends Model
 {
     use HasUuids;

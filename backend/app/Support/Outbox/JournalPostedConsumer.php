@@ -19,7 +19,7 @@ final class JournalPostedConsumer
             'effect' => json_encode(['observed' => true], JSON_THROW_ON_ERROR),
         ]);
         if ($inserted === 1) {
-            $metadata = is_array($event->metadata) ? $event->metadata : [];
+            $metadata = $event->metadata ?? [];
 
             Log::info('domain_event_consumed', [
                 'event_id' => $event->id,
