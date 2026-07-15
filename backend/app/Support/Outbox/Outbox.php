@@ -8,8 +8,8 @@ use Illuminate\Support\Carbon;
 final class Outbox
 {
     /**
-     * @param array<string, mixed> $payload
-     * @param array<string, mixed> $metadata
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $metadata
      */
     public function record(
         string $eventType,

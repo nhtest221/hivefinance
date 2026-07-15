@@ -8,9 +8,9 @@ use Illuminate\Support\Carbon;
 final class AuditLogger
 {
     /**
-     * @param array<string, mixed>|null $before
-     * @param array<string, mixed>|null $after
-     * @param array<string, mixed>      $metadata
+     * @param  array<string, mixed>|null  $before
+     * @param  array<string, mixed>|null  $after
+     * @param  array<string, mixed>  $metadata
      */
     public function record(
         string $module,
