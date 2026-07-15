@@ -4,15 +4,27 @@ namespace App\Identity\Application;
 
 final readonly class IdentityActionResult
 {
+    public bool $ok;
+
+    public int $status;
+
+    /**
+     * @var array<string, mixed>
+     */
+    public array $payload;
+
     /**
      * @param array<string, mixed> $payload
      */
     private function __construct(
-        public bool $ok,
-        public int $status,
-        public array $payload,
-    )
-    {}
+        bool $ok,
+        int $status,
+        array $payload,
+    ) {
+        $this->ok = $ok;
+        $this->status = $status;
+        $this->payload = $payload;
+    }
 
     /**
      * @param array<string, mixed> $payload
