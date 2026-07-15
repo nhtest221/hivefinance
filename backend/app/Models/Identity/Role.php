@@ -2,6 +2,7 @@
 
 namespace App\Models\Identity;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -42,7 +43,7 @@ final class Role extends Model
 
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(\App\Models\User::class, 'identity_role_user')
+        return $this->belongsToMany(User::class, 'identity_role_user')
             ->withPivot('entity_id')
             ->withTimestamps();
     }

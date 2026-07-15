@@ -5,8 +5,8 @@ use App\Models\Identity\Entity;
 use App\Models\Identity\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 use Laravel\Sanctum\Sanctum;
 
 uses(RefreshDatabase::class);
