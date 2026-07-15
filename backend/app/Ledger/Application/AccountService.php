@@ -11,11 +11,20 @@ use Illuminate\Support\Facades\DB;
 
 final readonly class AccountService
 {
+    private LedgerAuthorizationService $authorization;
+
+    private AuditLogger $audit;
+
+    private Outbox $outbox;
+
     public function __construct(
-        private LedgerAuthorizationService $authorization,
-        private AuditLogger $audit,
-        private Outbox $outbox,
+        LedgerAuthorizationService $authorization,
+        AuditLogger $audit,
+        Outbox $outbox,
     ) {
+        $this->authorization = $authorization;
+        $this->audit = $audit;
+        $this->outbox = $outbox;
     }
 
     /**

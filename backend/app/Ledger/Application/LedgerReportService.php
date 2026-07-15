@@ -11,8 +11,14 @@ use Illuminate\Database\Eloquent\Collection;
 
 final readonly class LedgerReportService
 {
-    public function __construct(private LedgerAuthorizationService $authorization, private EntityReferenceQuery $entities)
+    private LedgerAuthorizationService $authorization;
+
+    private EntityReferenceQuery $entities;
+
+    public function __construct(LedgerAuthorizationService $authorization, EntityReferenceQuery $entities)
     {
+        $this->authorization = $authorization;
+        $this->entities = $entities;
     }
 
     public function accountBalance(User $actor, string $entityId, string $accountId, ?string $asOf): LedgerActionResult
