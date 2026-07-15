@@ -13,6 +13,7 @@ final readonly class AccountService
 {
     public function __construct(private LedgerAuthorizationService $authorization, private AuditLogger $audit, private Outbox $outbox)
     {
+        // Promoted readonly dependencies keep the application service immutable.
     }
 
     /**

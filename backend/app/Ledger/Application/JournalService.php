@@ -21,6 +21,7 @@ final readonly class JournalService
 {
     public function __construct(private LedgerAuthorizationService $authorization, private PeriodQuery $periods, private AuditLogger $audit, private Outbox $outbox, private EntityReferenceQuery $entities)
     {
+        // Promoted readonly dependencies keep the application service immutable.
     }
 
     /**

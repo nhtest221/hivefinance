@@ -13,6 +13,7 @@ final readonly class LedgerReportService
 {
     public function __construct(private LedgerAuthorizationService $authorization, private EntityReferenceQuery $entities)
     {
+        // Promoted readonly dependencies keep the application service immutable.
     }
 
     public function accountBalance(User $actor, string $entityId, string $accountId, ?string $asOf): LedgerActionResult
