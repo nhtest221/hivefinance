@@ -322,3 +322,16 @@ Gapless where statutory, collision-free under concurrency, matches Xero's assign
 ### Gate Review Outcome (13 July 2026)
 **Result:** PASSED → LOCKED. Confidence **93%**. Consistent with ADR-001–008. Statutory number immutable at post (ADR-002); void keeps number (ADR-003); migrated numbers preserved (ADR-008); manual path authorised (ADR-005). Closes the v2.0 numbering gap.
 **Rider (policy, not architecture):** fiscal-year reset choice for `NH-` (continuous vs annual) — recommend continuous to preserve the Xero-inherited run.
+
+---
+
+## Governance Approval Record — API-M1-001
+
+**Status:** APPROVED
+**Date:** 16 July 2026
+**Approved artifact:** `PROPOSED_API_CONTRACT_AMENDMENT_M1.md`
+**Approved SHA-256:** `5952d79cca49dcbdef0ee684bf579ce28856730bc474ebe899cbba9ec43260bf`
+
+The approved M1 Ledger + Valuation API contract is incorporated into `HiveFin_API_Contracts.md` §8. It freezes the implementation-facing public contracts for M1 Ledger, Tax, and Currency & FX while preserving the approved M0 contract in §7. Applicable tax lookup, applicable FX rate lookup, and realised FX calculation remain internal contracts and are not public HTTP endpoints.
+
+**Traceability:** SRS v3.0 §§4.3–4.4, 5.2, 5.10–5.13, and 7; ADR-002, ADR-004, ADR-005, ADR-006, and ADR-007; Aggregate Design §§1, 5, 9, and 10; Repository Contracts; Database Design; Domain Events; Engineering Constitution API-01 through API-07.
