@@ -348,3 +348,17 @@ The approved M1 Ledger + Valuation API contract is incorporated into `HiveFin_AP
 The durable maker-checker contract is incorporated into `HiveFin_API_Contracts.md` §9. `ApprovalRequested` and `ApprovalGranted` v1 are incorporated into the Identity & Access section of `HiveFin_Domain_Events.md`. The approved lifecycle contains only pending and approved transitions; it authorizes no rejection or cancellation transition.
 
 **Traceability:** ADR-005; SRS v3.0 §3 and BR-025 through BR-031; Engineering Constitution ARCH-02/05, DOM-09/10, API-01 through API-05, SEC-01/02, AUD-01 through AUD-04, and LOG-01/02; API Contracts §§3, 7.4, 8.1.3, and 9; Domain Events Identity & Access catalogue.
+
+---
+
+## Governance Clarification Record — API-M1-002
+
+**Status:** APPROVED
+**Date:** 16 July 2026
+**Scope:** M1 shared-protocol compatibility with the approved M0 contract
+
+M1 retains the approved M0 shared-protocol behavior. A malformed caller-supplied `X-Correlation-Id` returns `400 validation`; the server generates a correlation UUID only when the header is absent. The canonical idempotent-replay response header is `Idempotent-Replay: true`.
+
+This clarification corrects the M1 and durable approval lifecycle common-protocol text in `HiveFin_API_Contracts.md` without changing the approved M0 text or behavior. It introduces no new endpoint, state, event, business rule, or application implementation.
+
+**Traceability:** API Contracts §§7.1, 7.3, 7.4, 8.1.1, 8.3.7, 9.2, and 9.4.7; Governance Approval Records API-M1-001 and API-APPROVAL-001; Engineering Constitution P-01 through P-03 and API-01 through API-05.
