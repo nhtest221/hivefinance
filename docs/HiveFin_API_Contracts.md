@@ -333,9 +333,9 @@ Errors: `400`, `401`, `403`, and entity-scoped `404 not_found`.
 
 All endpoints require TLS, authentication, and `X-Entity-Id`. Authorization is default-deny and entity-scoped. Cross-entity resources return `404 not_found`.
 
-`X-Correlation-Id` is optional. The server replaces an absent or invalid value with a UUID, echoes the effective value, and propagates it to logs, audit, outbox metadata, and internal calls.
+`X-Correlation-Id` is optional. The server generates a UUID only when the header is absent, echoes the effective value, and propagates it to logs, audit, outbox metadata, and internal calls. A malformed caller-supplied value returns `400 validation` and is not silently replaced.
 
-Every state-changing endpoint requires a UUID `Idempotency-Key`. The same key and canonical request return the original result without repeating state, audit, or events. Reuse with different input returns `409 idempotency_conflict`. Replays return `Idempotency-Replayed: true`.
+Every state-changing endpoint requires a UUID `Idempotency-Key`. The same key and canonical request return the original result without repeating state, audit, or events. Reuse with different input returns `409 idempotency_conflict`. Replays return `Idempotent-Replay: true`.
 
 `If-Match` is required only where stated. Missing and stale versions return `428 precondition_required` and `409 concurrency_conflict`. `X-SoD-Justification` is accepted only for an authorized compensating-control flow.
 
@@ -627,7 +627,7 @@ Only `pending` and `approved` are proposed because those are the only lifecycle 
 ### 9.2 Common requirements
 
 - TLS, authentication, and UUID `X-Entity-Id` are required.
-- UUID `X-Correlation-Id` is optional. The server generates one when absent or invalid, echoes it, and propagates it to audit, outbox, logs, and replayed command causation metadata.
+- UUID `X-Correlation-Id` is optional. The server generates one only when the header is absent, echoes it, and propagates it to audit, outbox, logs, and replayed command causation metadata. A malformed caller-supplied value returns `400 validation` and is not silently replaced.
 - UUID `Idempotency-Key` is required for approval.
 - Integer `If-Match` is required for approval.
 - Entity access and approval capability are default-deny.
@@ -780,7 +780,7 @@ For any failure while verifying or executing the originating command:
 #### 9.4.7 Idempotency and concurrency
 
 - Approval idempotency scope is actor, entity, endpoint, and approval ID.
-- Identical replay returns the original `200` response and `Idempotency-Replayed: true`.
+- Identical replay returns the original `200` response and `Idempotent-Replay: true`.
 - Approval uses an optimistic conditional transition from `pending` at the supplied version to `approved` at the next version.
 - Concurrent or duplicate approval produces at most one originating command execution.
 
