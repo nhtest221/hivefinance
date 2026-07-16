@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\ApprovalController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\EntitySessionController;
 use App\Http\Controllers\Auth\PasswordResetController;
@@ -29,6 +30,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/entities', [EntitySessionController::class, 'index'])->name('entities.index');
     Route::post('/entities/switch', [EntitySessionController::class, 'switch'])->name('entities.switch');
     Route::get('/roles', RoleController::class)->name('roles.index');
+    Route::post('/approvals/{id}/approve', [ApprovalController::class, 'approve'])->name('approvals.approve');
 
     Route::get('/periods/postable', [PeriodController::class, 'postable'])->name('periods.postable');
     Route::get('/periods/{ref}', [PeriodController::class, 'show'])->name('periods.show');
