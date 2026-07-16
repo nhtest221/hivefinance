@@ -90,6 +90,85 @@ Columns: **Event** · **Producer (aggregate)** · **Trigger (command)** · **Key
 | `RoleAssigned` | User | AssignRole | userId, roleId | Audit | permission change |
 | `SoDExceptionRaised` | User | RaiseSoDException | userId, conflict, justification | Reporting(review), Audit | post-facto review queue |
 | `BreakGlassActivated` | User | ActivateBreakGlass | userId, reason, expiry | Owner(notify), Audit | emergency elevation |
+| `ApprovalRequested` | ApprovalRequest | RequireApproval | approvalId, entityId, makerId, commandType, commandSchemaVersion, resourceId, approvalVersion, requestedAt | Audit, originating context | durable pending command |
+| `ApprovalGranted` | ApprovalRequest | Approve | approvalId, entityId, makerId, approverId, commandType, commandSchemaVersion, resourceId, approvalVersion, approvedAt | Audit, originating context | approved command committed |
+
+#### ApprovalRequested v1
+
+- **Owner:** Identity & Access.
+- **Trigger:** configured maker-checker policy commits a durable pending approval request.
+- **Idempotency:** one event per approval ID; replay of the originating idempotency key emits no additional event.
+- **Causation:** originating command request ID, or its durable idempotency-record ID when no request ID exists.
+- **Correlation:** effective originating correlation ID.
+
+Payload:
+
+```json
+{
+  "approval_id": "3530ca0e-4201-4ab1-8521-20f851defd44",
+  "entity_id": "2b222b7c-9b5d-428d-9f1e-71bf7c7a5f2d",
+  "maker_id": "b7447cf1-adf8-439b-bf4c-34c5752cfdd7",
+  "command_type": "tax_code_version_create",
+  "command_schema_version": 1,
+  "resource_id": "fb861bea-a516-4546-b92e-2a96a19a3379",
+  "approval_version": 1,
+  "requested_at": "2026-07-16T10:30:00Z"
+}
+```
+
+Metadata:
+
+```json
+{
+  "event_id": "64033b88-c073-48bb-8c85-da4a8ec76871",
+  "event_name": "ApprovalRequested",
+  "event_version": 1,
+  "occurred_at": "2026-07-16T10:30:00Z",
+  "correlation_id": "00f777b2-a18e-46dd-b6c7-9fac9063f213",
+  "causation_id": "41d7a445-6734-44d3-a2b5-d61a60ec44dc"
+}
+```
+
+The event never contains the command payload, payload hash, idempotency key, sensitive fields, or encryption details.
+
+#### ApprovalGranted v1
+
+- **Owner:** Identity & Access.
+- **Trigger:** approval transition and originating command commit successfully in the approved atomic transaction.
+- **Idempotency:** one event per approval ID; duplicate or concurrent approval emits no additional event and cannot repeat the originating command.
+- **Causation:** corresponding `ApprovalRequested` event ID.
+- **Correlation:** effective approval-command correlation ID; durable approval metadata retains the originating correlation link.
+
+Payload:
+
+```json
+{
+  "approval_id": "3530ca0e-4201-4ab1-8521-20f851defd44",
+  "entity_id": "2b222b7c-9b5d-428d-9f1e-71bf7c7a5f2d",
+  "maker_id": "b7447cf1-adf8-439b-bf4c-34c5752cfdd7",
+  "approver_id": "1b8f3c2f-4e62-4fa9-a924-77848017a9a6",
+  "command_type": "tax_code_version_create",
+  "command_schema_version": 1,
+  "resource_id": "fb861bea-a516-4546-b92e-2a96a19a3379",
+  "approval_version": 2,
+  "approved_at": "2026-07-16T11:00:00Z"
+}
+```
+
+Metadata:
+
+```json
+{
+  "event_id": "7fea2473-2cf0-469f-936b-0f798ef8f803",
+  "event_name": "ApprovalGranted",
+  "event_version": 1,
+  "occurred_at": "2026-07-16T11:00:00Z",
+  "correlation_id": "e0aee0cf-bcd3-45de-a409-c5bb42ad9857",
+  "causation_id": "64033b88-c073-48bb-8c85-da4a8ec76871"
+}
+```
+
+The event never contains the command payload, command result, payload hash, idempotency key, sensitive fields, or encryption details.
 
 ### Reconciliation
 | Event | Producer | Trigger | Payload | Consumers | Effect |
