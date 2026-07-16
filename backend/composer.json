@@ -34,7 +34,7 @@
       "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
       "@php artisan package:discover --ansi"
     ],
-    "analyse": "phpstan analyse --memory-limit=1G",
+    "analyse": "phpstan analyse",
     "format": "pint",
     "refactor": "rector process --dry-run",
     "boundaries": "php scripts/check-boundaries.php",
