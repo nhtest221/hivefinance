@@ -7,16 +7,16 @@ import {
   AuditLogPage,
   BankAccountsPage,
   ChartOfAccountsPage,
-  FxPage,
   PayablesPage,
   ReceivablesPage,
   ReportsPage,
   SettingsPage,
   SettlementPage,
-  TaxPage,
 } from './pages/module-screens'
 import { ResetPasswordPage } from './pages/reset-password-page'
 import { ManualJournalPage } from '@/features/ledger/manual-journal-page'
+import { TaxPage } from '@/features/tax/tax-page'
+import { FxPage } from '@/features/fx/fx-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },

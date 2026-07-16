@@ -78,7 +78,7 @@ function approvalActors(bool $handlerFails = false): array
     $approver->roles()->attach($role->id, ['entity_id' => $entity->id]);
     $maker->roles()->attach($role->id, ['entity_id' => $entity->id]);
     $handler = new ApprovalProbeHandler($handlerFails);
-    app(ApprovalCommandRegistry::class)->register($handler);
+    app(ApprovalCommandRegistry::class)->replace($handler);
 
     return compact('entity', 'maker', 'approver', 'unauthorized', 'handler');
 }
@@ -176,7 +176,7 @@ it('approves exactly once and safely replays the approval response', function ()
 
     $first = $this->postJson("/v1/approvals/{$approval->id}/approve", [], $headers)->assertOk();
     $second = $this->postJson("/v1/approvals/{$approval->id}/approve", [], $headers)->assertOk()
-        ->assertHeader('Idempotency-Replayed', 'true');
+        ->assertHeader('Idempotent-Replay', 'true');
 
     $requested = OutboxMessage::query()->where('event_type', 'ApprovalRequested')->firstOrFail();
     $granted = OutboxMessage::query()->where('event_type', 'ApprovalGranted')->firstOrFail();
@@ -244,7 +244,7 @@ it('rolls back a failing originating command and records an immutable failed att
     $failedHeaders = approveHeaders($actors['entity'], 1, $failedKey);
     $this->postJson("/v1/approvals/{$approval->id}/approve", [], $failedHeaders)->assertUnprocessable();
     $this->postJson("/v1/approvals/{$approval->id}/approve", [], $failedHeaders)
-        ->assertUnprocessable()->assertHeader('Idempotency-Replayed', 'true');
+        ->assertUnprocessable()->assertHeader('Idempotent-Replay', 'true');
     expect(AuditLog::query()->where('action', 'approval_execution_failed')->count())->toBe(2);
 
     $actors['handler']->fails = false;

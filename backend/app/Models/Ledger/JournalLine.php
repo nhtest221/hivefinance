@@ -4,6 +4,7 @@ namespace App\Models\Ledger;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Override;
 
 /**
@@ -17,7 +18,10 @@ use Override;
  * @property string $credit
  * @property string $currency
  * @property string|null $fx_amount
+ * @property string|null $fx_currency
  * @property string|null $rate_record_id
+ * @property string|null $fx_rate
+ * @property Carbon|null $fx_rate_effective_date
  * @property string|null $sbu_tag
  * @property JournalEntry $journalEntry
  */
@@ -33,7 +37,10 @@ final class JournalLine extends Model
         'credit',
         'currency',
         'fx_amount',
+        'fx_currency',
         'rate_record_id',
+        'fx_rate',
+        'fx_rate_effective_date',
         'sbu_tag',
     ];
 
@@ -45,6 +52,8 @@ final class JournalLine extends Model
             'debit' => 'decimal:4',
             'credit' => 'decimal:4',
             'fx_amount' => 'decimal:4',
+            'fx_rate' => 'decimal:8',
+            'fx_rate_effective_date' => 'immutable_date',
         ];
     }
 

@@ -28,13 +28,14 @@ final readonly class LedgerReportService
             return new LedgerActionResult(['error_code' => 'not_found', 'message' => 'The account was not found.', 'details' => []], 404);
         }
 
+        $asOf ??= now('UTC')->toDateString();
         $balance = $this->sumAccount($entityId, $accountId, $asOf);
+        $currency = $this->entities->functionalCurrency($entityId) ?? '';
 
         return new LedgerActionResult([
-            'account_id' => $accountId,
+            'account' => ['id' => $account->id, 'code' => $account->code, 'name' => $account->name, 'normal_balance' => $account->normal_balance],
             'as_of' => $asOf,
-            'balance' => $balance->toString(),
-            'normal_balance' => $account->normal_balance,
+            'balance' => ['amount' => $balance->toString(), 'currency' => $currency],
         ]);
     }
 

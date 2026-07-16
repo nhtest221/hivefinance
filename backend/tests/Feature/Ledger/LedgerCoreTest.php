@@ -88,12 +88,12 @@ it('creates and deactivates chart of account records with audit logging', functi
         'code' => '1010',
         'name' => 'Operating Bank',
         'type' => 'asset',
-    ], ['X-Entity-Id' => $entity->id])
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => '30000000-0000-4000-8000-000000000001'])
         ->assertCreated()
         ->assertJsonPath('account.normal_balance', 'debit')
         ->json('account.id');
 
-    $this->postJson("/v1/accounts/{$accountId}/deactivate", [], ['X-Entity-Id' => $entity->id])
+    $this->postJson("/v1/accounts/{$accountId}/deactivate", [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => '30000000-0000-4000-8000-000000000002', 'If-Match' => '1'])
         ->assertOk()
         ->assertJsonPath('account.status', 'deactivated');
 
@@ -225,10 +225,10 @@ it('creates a linked posted reversal without mutating the original posted journa
         'reason' => 'Correction by reversal',
     ], [
         'X-Entity-Id' => $entity->id,
-        'Idempotency-Key' => 'reverse-journal-1',
+        'Idempotency-Key' => '30000000-0000-4000-8000-000000000003',
     ])
         ->assertCreated()
-        ->assertJsonPath('journal.state', 'Posted')
+        ->assertJsonPath('journal.state', 'posted')
         ->assertJsonPath('journal.reversal_of_entry_id', $journalId)
         ->json('journal.id');
 
