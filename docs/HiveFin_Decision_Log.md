@@ -335,3 +335,16 @@ Gapless where statutory, collision-free under concurrency, matches Xero's assign
 The approved M1 Ledger + Valuation API contract is incorporated into `HiveFin_API_Contracts.md` §8. It freezes the implementation-facing public contracts for M1 Ledger, Tax, and Currency & FX while preserving the approved M0 contract in §7. Applicable tax lookup, applicable FX rate lookup, and realised FX calculation remain internal contracts and are not public HTTP endpoints.
 
 **Traceability:** SRS v3.0 §§4.3–4.4, 5.2, 5.10–5.13, and 7; ADR-002, ADR-004, ADR-005, ADR-006, and ADR-007; Aggregate Design §§1, 5, 9, and 10; Repository Contracts; Database Design; Domain Events; Engineering Constitution API-01 through API-07.
+
+---
+
+## Governance Approval Record — API-APPROVAL-001
+
+**Status:** APPROVED
+**Date:** 16 July 2026
+**Approved artifact:** `PROPOSED_API_CONTRACT_AMENDMENT_APPROVAL_LIFECYCLE.md`
+**Approved SHA-256:** `9edd79b9b181eaab8f99836ae5faf02bf09f307803d587645b837e94182de06f`
+
+The durable maker-checker contract is incorporated into `HiveFin_API_Contracts.md` §9. `ApprovalRequested` and `ApprovalGranted` v1 are incorporated into the Identity & Access section of `HiveFin_Domain_Events.md`. The approved lifecycle contains only pending and approved transitions; it authorizes no rejection or cancellation transition.
+
+**Traceability:** ADR-005; SRS v3.0 §3 and BR-025 through BR-031; Engineering Constitution ARCH-02/05, DOM-09/10, API-01 through API-05, SEC-01/02, AUD-01 through AUD-04, and LOG-01/02; API Contracts §§3, 7.4, 8.1.3, and 9; Domain Events Identity & Access catalogue.
