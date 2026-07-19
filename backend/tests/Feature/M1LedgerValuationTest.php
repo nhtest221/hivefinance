@@ -136,6 +136,21 @@ it('fails revaluation safely when policy configuration is absent', function (): 
         ->assertUnprocessable()->assertJsonPath('details.rule', 'missing_period_end_rate');
 });
 
+it('accepts only persisted revaluation run statuses in the query', function (): void {
+    [$maker, , $entity] = m1Actors(['fx.revaluation.read']);
+    Sanctum::actingAs($maker);
+
+    foreach (['posted', 'reversed'] as $status) {
+        $this->getJson('/v1/fx/revaluation?period=2026-07&status='.$status, ['X-Entity-Id' => $entity->id])
+            ->assertOk()
+            ->assertJsonPath('revaluation_runs', []);
+    }
+
+    $this->getJson('/v1/fx/revaluation?period=2026-07&status=pending_approval', ['X-Entity-Id' => $entity->id])
+        ->assertBadRequest()
+        ->assertJsonPath('error_code', 'validation');
+});
+
 it('posts and links the configured next-period revaluation reversal', function (): void {
     [$maker, , $entity] = m1Actors(['fx.revaluation.run']);
     AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'soft_closed']);

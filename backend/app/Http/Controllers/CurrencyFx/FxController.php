@@ -55,7 +55,7 @@ final class FxController
 
     public function revaluations(Request $request, FxService $fx): JsonResponse
     {
-        $validator = Validator::make($request->query(), ['period' => ['required', 'regex:/^\d{4}-\d{2}$/'], 'status' => ['nullable', 'in:pending_approval,posted,reversed']]);
+        $validator = Validator::make($request->query(), ['period' => ['required', 'regex:/^\d{4}-\d{2}$/'], 'status' => ['nullable', 'in:posted,reversed']]);
         if ($validator->fails()) {
             return response()->json(['error_code' => 'validation', 'message' => 'The request is invalid.', 'details' => $validator->errors()->toArray()], 400);
         }
