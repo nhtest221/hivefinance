@@ -31,7 +31,7 @@ final class StoreJournalRequest extends FormRequest
             'narration' => ['nullable', 'string', 'max:2000'],
             'reference' => ['nullable', 'string', 'max:255'],
             'lines' => ['required', 'array', 'min:2'],
-            'lines.*' => ['required', 'array:account_id,description,debit,credit'],
+            'lines.*' => ['required', 'array:account_id,description,debit,credit,foreign_amount,exchange_rate_reference'],
             'lines.*.account_id' => ['required', 'uuid'],
             'lines.*.description' => ['nullable', 'string', 'max:2000'],
             'lines.*.debit' => ['nullable', 'array:amount,currency'],
@@ -40,6 +40,15 @@ final class StoreJournalRequest extends FormRequest
             'lines.*.credit' => ['nullable', 'array:amount,currency'],
             'lines.*.credit.amount' => ['required_with:lines.*.credit', 'string', 'regex:/^\d+(\.\d{1,4})?$/'],
             'lines.*.credit.currency' => ['required_with:lines.*.credit', 'string', 'size:3', 'uppercase'],
+            'lines.*.foreign_amount' => ['nullable', 'array:amount,currency'],
+            'lines.*.foreign_amount.amount' => ['required_with:lines.*.foreign_amount', 'string', 'regex:/^\d+(\.\d{1,4})?$/'],
+            'lines.*.foreign_amount.currency' => ['required_with:lines.*.foreign_amount', 'string', 'size:3', 'uppercase'],
+            'lines.*.exchange_rate_reference' => ['nullable', 'array:rate_record_id,base_currency,quote_currency,rate,effective_date'],
+            'lines.*.exchange_rate_reference.rate_record_id' => ['required_with:lines.*.exchange_rate_reference', 'uuid'],
+            'lines.*.exchange_rate_reference.base_currency' => ['required_with:lines.*.exchange_rate_reference', 'string', 'size:3', 'uppercase'],
+            'lines.*.exchange_rate_reference.quote_currency' => ['required_with:lines.*.exchange_rate_reference', 'string', 'size:3', 'uppercase'],
+            'lines.*.exchange_rate_reference.rate' => ['required_with:lines.*.exchange_rate_reference', 'string', 'regex:/^\d+(\.\d{1,8})?$/'],
+            'lines.*.exchange_rate_reference.effective_date' => ['required_with:lines.*.exchange_rate_reference', 'date_format:Y-m-d'],
         ];
     }
 }

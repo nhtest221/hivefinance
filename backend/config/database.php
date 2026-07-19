@@ -22,6 +22,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
+            'timezone' => 'UTC',
             'sslmode' => 'prefer',
         ],
     ],

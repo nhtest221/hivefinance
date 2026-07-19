@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 use Override;
 
@@ -61,5 +62,11 @@ final class JournalEntry extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(JournalLine::class)->orderBy('line_no');
+    }
+
+    /** @return HasOne<JournalEntry, $this> */
+    public function reversal(): HasOne
+    {
+        return $this->hasOne(self::class, 'reversal_of_entry_id');
     }
 }

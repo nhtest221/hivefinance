@@ -28,6 +28,8 @@ export function LoginPage() {
       }
 
       sessionStorage.setItem('hivefinance.auth_token', result.token)
+      sessionStorage.setItem('hivefinance.permissions', JSON.stringify(result.session.permissions))
+      sessionStorage.setItem('hivefinance.roles', JSON.stringify(result.session.roles))
       if (result.session.active_entity !== null) {
         sessionStorage.setItem('hivefinance.entity_id', result.session.active_entity.id)
         sessionStorage.setItem('hivefinance.functional_currency', result.session.active_entity.functional_currency)

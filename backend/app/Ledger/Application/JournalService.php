@@ -2,24 +2,30 @@
 
 namespace App\Ledger\Application;
 
+use App\CurrencyFx\Application\RateReferenceService;
+use App\Identity\Application\ApprovalLifecycleService;
+use App\Identity\Application\ApprovalPolicyQuery;
 use App\Identity\Application\EntityReferenceQuery;
+use App\Identity\Domain\OriginatingCommand;
 use App\Ledger\Domain\DecimalAmount;
 use App\Models\IdempotencyRecord;
 use App\Models\Ledger\JournalEntry;
+use App\Models\Ledger\JournalLine;
 use App\Models\Ledger\LedgerAccount;
-use App\Models\OutboxMessage;
 use App\Models\User;
 use App\Period\Application\PeriodQuery;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
-use Illuminate\Database\Eloquent\Collection;
+use App\Support\Pagination\StableCursor;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 final readonly class JournalService
 {
-    public function __construct(private LedgerAuthorizationService $authorization, private PeriodQuery $periods, private AuditLogger $audit, private Outbox $outbox, private EntityReferenceQuery $entities)
+    public function __construct(private LedgerAuthorizationService $authorization, private PeriodQuery $periods, private AuditLogger $audit, private Outbox $outbox, private EntityReferenceQuery $entities, private RateReferenceService $rates, private ApprovalPolicyQuery $approvalPolicy, private ApprovalLifecycleService $approvals)
     {
         // Promoted readonly dependencies keep the application service immutable.
     }
@@ -50,7 +56,7 @@ final readonly class JournalService
             return $this->validation('The journal date must belong to a valid fiscal period.', ['field' => 'entry_date']);
         }
 
-        $validation = $this->validateLines($entityId, $data['lines'], $this->entities->functionalCurrency($entityId));
+        $validation = $this->validateLines($entityId, $data['lines'], $this->entities->functionalCurrency($entityId), (string) $data['entry_date']);
         if ($validation instanceof LedgerActionResult) {
             return $validation;
         }
@@ -76,6 +82,11 @@ final readonly class JournalService
                     'debit' => DecimalAmount::fromString($line['debit']['amount'] ?? '0')->toString(),
                     'credit' => DecimalAmount::fromString($line['credit']['amount'] ?? '0')->toString(),
                     'currency' => $line['debit']['currency'] ?? $line['credit']['currency'],
+                    'fx_amount' => $line['foreign_amount']['amount'] ?? null,
+                    'fx_currency' => $line['foreign_amount']['currency'] ?? null,
+                    'rate_record_id' => $line['exchange_rate_reference']['rate_record_id'] ?? null,
+                    'fx_rate' => $line['exchange_rate_reference']['rate'] ?? null,
+                    'fx_rate_effective_date' => $line['exchange_rate_reference']['effective_date'] ?? null,
                 ]);
             }
 
@@ -141,11 +152,13 @@ final readonly class JournalService
             return $this->periodLocked('The journal date is not postable for the period state.');
         }
 
-        $validation = $this->validateLines($entityId, $journal->lines->map(fn ($line): array => [
+        $validation = $this->validateLines($entityId, $journal->lines->map(fn (JournalLine $line): array => [
             'account_id' => $line->account_id,
             'debit' => DecimalAmount::fromString($line->debit)->isZero() ? null : ['amount' => $line->debit, 'currency' => $line->currency],
             'credit' => DecimalAmount::fromString($line->credit)->isZero() ? null : ['amount' => $line->credit, 'currency' => $line->currency],
-        ])->all(), $this->entities->functionalCurrency($entityId));
+            'foreign_amount' => $line->fx_amount === null ? null : ['amount' => $line->fx_amount, 'currency' => $line->fx_currency],
+            'exchange_rate_reference' => $line->rate_record_id === null ? null : ['rate_record_id' => $line->rate_record_id, 'base_currency' => $line->fx_currency, 'quote_currency' => $line->currency, 'rate' => $line->fx_rate, 'effective_date' => $line->fx_rate_effective_date?->toDateString()],
+        ])->all(), $this->entities->functionalCurrency($entityId), $journal->entry_date->toDateString());
         if ($validation instanceof LedgerActionResult) {
             return $validation;
         }
@@ -156,6 +169,12 @@ final readonly class JournalService
             $journal->posted_by = $actor->id;
             $journal->version++;
             $journal->save();
+
+            foreach ($journal->lines as $line) {
+                if ($line->rate_record_id !== null) {
+                    $this->rates->markReferenced($entityId, $line->rate_record_id);
+                }
+            }
 
             $payload = $this->eventPayload($journal->load('lines'));
             $this->outbox->record('JournalPosted', 'JournalEntry', $journal->id, $payload, $entityId, metadata: [
@@ -186,13 +205,14 @@ final readonly class JournalService
             return $this->authorization->denyResponse($permission);
         }
 
-        if ($idempotencyKey === null || $idempotencyKey === '') {
-            return $this->validation('Idempotency-Key header is required.', ['header' => 'Idempotency-Key']);
+        if ($idempotencyKey === null || Str::isUuid($idempotencyKey) === false) {
+            return $this->validation('Idempotency-Key must be a UUID.', ['header' => 'Idempotency-Key'], 400);
         }
-
-        $existingEvent = $this->findOutboxReplay('JournalReversed', $journalId, $idempotencyKey);
-        if ($existingEvent !== null) {
-            return new LedgerActionResult($existingEvent, 201);
+        $operation = 'POST /v1/journals/'.$journalId.'/reverse';
+        $hash = hash('sha256', json_encode([$journalId, $data], JSON_THROW_ON_ERROR));
+        $replay = $this->idempotencyReplay($actor->id, $entityId, $operation, $idempotencyKey, $hash);
+        if ($replay !== null) {
+            return $replay;
         }
 
         $original = JournalEntry::query()->with('lines')->where('entity_id', $entityId)->find($journalId);
@@ -207,6 +227,18 @@ final readonly class JournalService
                 'details' => ['state' => $original->state],
             ], 422);
         }
+        if ($original->entry_type === 'system') {
+            return new LedgerActionResult(['error_code' => 'invariant_violation', 'message' => 'System entries reverse through their source.', 'details' => ['rule' => 'system_entry_source_reversal_required']], 422);
+        }
+        if (JournalEntry::query()->where('entity_id', $entityId)->where('reversal_of_entry_id', $original->id)->exists()) {
+            return new LedgerActionResult(['error_code' => 'invariant_violation', 'message' => 'The journal has already been reversed.', 'details' => ['rule' => 'journal_already_reversed']], 422);
+        }
+
+        if ($this->approvalPolicy->isConfigured($entityId)) {
+            $approval = $this->approvals->requestApproval($actor, $entityId, new OriginatingCommand('reverse_journal', 1, ['journal_id' => $journalId, 'data' => $data], $journalId, 'ledger.journals.reverse'), $operation, $idempotencyKey, (string) request()->attributes->get('correlation_id'));
+
+            return new LedgerActionResult($approval->payload, $approval->status, $approval->headers);
+        }
 
         $reversalDate = (string) $data['entry_date'];
         $period = $this->periods->postablePeriodForDate($entityId, $reversalDate, 'reversal');
@@ -214,79 +246,109 @@ final readonly class JournalService
             return $this->periodLocked('The reversal date is not postable for the period state.');
         }
 
-        $reversal = DB::transaction(function () use ($actor, $entityId, $original, $period, $reversalDate, $data, $idempotencyKey): JournalEntry {
-            $reversal = JournalEntry::query()->create([
-                'entity_id' => $entityId,
-                'period_id' => $period->id,
-                'period_ref' => $period->period_ref,
-                'entry_type' => 'reversal',
-                'entry_date' => $reversalDate,
-                'state' => 'posted',
-                'narration' => $data['reason'] ?? 'Reversal',
-                'reference' => $original->id,
-                'reversal_of_entry_id' => $original->id,
-                'posted_at' => Carbon::now('UTC'),
-                'posted_by' => $actor->id,
-            ]);
-
-            foreach ($original->lines as $line) {
-                $reversal->lines()->create([
+        try {
+            $result = DB::transaction(function () use ($actor, $entityId, $original, $period, $reversalDate, $data, $idempotencyKey, $operation, $hash): LedgerActionResult {
+                $reversal = JournalEntry::query()->create([
                     'entity_id' => $entityId,
-                    'account_id' => $line->account_id,
-                    'line_no' => $line->line_no,
-                    'description' => 'Reversal: '.$line->description,
-                    'debit' => $line->credit,
-                    'credit' => $line->debit,
-                    'currency' => $line->currency,
-                    'fx_amount' => $line->fx_amount,
-                    'rate_record_id' => $line->rate_record_id,
-                    'sbu_tag' => $line->sbu_tag,
+                    'period_id' => $period->id,
+                    'period_ref' => $period->period_ref,
+                    'entry_type' => 'reversal',
+                    'entry_date' => $reversalDate,
+                    'state' => 'posted',
+                    'narration' => $data['reason'] ?? 'Reversal',
+                    'reference' => $original->id,
+                    'reversal_of_entry_id' => $original->id,
+                    'posted_at' => Carbon::now('UTC'),
+                    'posted_by' => $actor->id,
                 ]);
-            }
 
-            $payload = [
-                'entryId' => $original->id,
-                'reversalOfEntryId' => $original->id,
-                'reversalEntryId' => $reversal->id,
-            ];
-            $this->outbox->record('JournalReversed', 'JournalEntry', $original->id, $payload, $entityId, metadata: [
-                'idempotency_key' => $idempotencyKey,
-            ]);
-            $this->audit->record('ledger', 'journal_reversed', 'journal_entry', $original->id, $actor->id, $entityId, after: $payload);
+                foreach ($original->lines as $line) {
+                    $reversal->lines()->create([
+                        'entity_id' => $entityId,
+                        'account_id' => $line->account_id,
+                        'line_no' => $line->line_no,
+                        'description' => 'Reversal: '.$line->description,
+                        'debit' => $line->credit,
+                        'credit' => $line->debit,
+                        'currency' => $line->currency,
+                        'fx_amount' => $line->fx_amount,
+                        'fx_currency' => $line->fx_currency,
+                        'rate_record_id' => $line->rate_record_id,
+                        'fx_rate' => $line->fx_rate,
+                        'fx_rate_effective_date' => $line->fx_rate_effective_date,
+                        'sbu_tag' => $line->sbu_tag,
+                    ]);
+                }
 
-            return $reversal->load('lines');
-        });
+                $payload = [
+                    'entryId' => $reversal->id,
+                    'reversalOfEntryId' => $original->id,
+                    'reversalEntryId' => $reversal->id,
+                ];
+                $this->outbox->record('JournalPosted', 'JournalEntry', $reversal->id, $this->eventPayload($reversal->load('lines')), $entityId, metadata: [
+                    'idempotency_key' => $idempotencyKey,
+                ]);
+                $this->outbox->record('JournalReversed', 'JournalEntry', $reversal->id, $payload, $entityId, metadata: [
+                    'idempotency_key' => $idempotencyKey,
+                ]);
+                $this->audit->record('ledger', 'journal_reversed', 'journal_entry', $original->id, $actor->id, $entityId, after: $payload);
+                $body = ['journal' => [...$this->present($reversal->load('lines')), 'state' => 'posted']];
+                IdempotencyRecord::query()->create(['actor_id' => $actor->id, 'entity_id' => $entityId, 'operation' => $operation, 'idempotency_key' => $idempotencyKey, 'request_hash' => $hash, 'response_status' => 201, 'response_body' => $body]);
 
-        return new LedgerActionResult(['journal' => $this->present($reversal)], 201);
+                return new LedgerActionResult($body, 201);
+            });
+        } catch (UniqueConstraintViolationException) {
+            return new LedgerActionResult(['error_code' => 'invariant_violation', 'message' => 'The journal has already been reversed.', 'details' => ['rule' => 'journal_already_reversed']], 422);
+        }
+
+        return $result;
     }
 
-    public function list(User $actor, string $entityId, ?string $accountId, ?string $periodRef, ?string $state): LedgerActionResult
+    /** @param array<string, mixed> $filters */
+    public function list(User $actor, string $entityId, array $filters, int $limit = 50, mixed $cursor = null): LedgerActionResult
     {
         $permission = 'ledger.journals.read';
         if ($this->authorization->can($actor, $entityId, $permission) === false) {
             return $this->authorization->denyResponse($permission);
         }
 
+        $binding = ['entity_id' => $entityId, 'filters' => $filters, 'order' => 'entry_date_desc,id_desc'];
+        try {
+            [$decodedCursor, $boundary] = StableCursor::decode(is_string($cursor) ? $cursor : null, $binding);
+        } catch (InvalidArgumentException $exception) {
+            return new LedgerActionResult(['error_code' => 'validation', 'message' => $exception->getMessage(), 'details' => []], 400);
+        }
         $query = JournalEntry::query()
             ->with('lines')
             ->where('entity_id', $entityId)
-            ->when($periodRef !== null, fn ($query) => $query->where('period_ref', $periodRef))
-            ->when($state !== null, fn ($query) => $query->where('state', $state))
-            ->when($accountId !== null, fn ($query) => $query->whereHas('lines', fn ($lines) => $lines->where('account_id', $accountId)))
-            ->orderByDesc('entry_date');
+            ->where('created_at', '<=', $boundary)
+            ->when($filters['period'], fn ($query, $value) => $query->where('period_ref', $value))
+            ->when($filters['status'] === 'reversed', fn ($query) => $query->where('state', 'posted')->whereHas('reversal'))
+            ->when($filters['status'] !== null && $filters['status'] !== 'reversed', fn ($query) => $query->where('state', $filters['status']))
+            ->when($filters['entry_type'], fn ($query, $value) => $query->where('entry_type', $value))
+            ->when($filters['from'], fn ($query, $value) => $query->whereDate('entry_date', '>=', $value))
+            ->when($filters['to'], fn ($query, $value) => $query->whereDate('entry_date', '<=', $value))
+            ->when($filters['source_document_id'], fn ($query, $value) => $query->where('source_document_id', $value))
+            ->when($filters['account'], fn ($query, $value) => $query->whereHas('lines', fn ($lines) => $lines->where('account_id', $value)))
+            ->orderByDesc('entry_date')->orderByDesc('id');
 
-        /** @var Collection<int, JournalEntry> $journals */
-        $journals = $query->get();
+        $journals = $query->cursorPaginate($limit, ['*'], 'cursor', $decodedCursor);
 
         return new LedgerActionResult([
-            'journals' => $journals->map(fn (JournalEntry $journal): array => $this->present($journal))->all(),
+            'journals' => $journals->getCollection()->map(function (JournalEntry $journal): array {
+                $totalDebit = $journal->lines->reduce(fn (DecimalAmount $sum, $line) => $sum->add(DecimalAmount::fromString($line->debit)), DecimalAmount::zero());
+                $totalCredit = $journal->lines->reduce(fn (DecimalAmount $sum, $line) => $sum->add(DecimalAmount::fromString($line->credit)), DecimalAmount::zero());
+
+                return ['id' => $journal->id, 'journal_number' => $journal->journal_number, 'entry_date' => $journal->entry_date->toDateString(), 'entry_type' => $journal->entry_type, 'state' => $journal->reversal()->exists() ? 'reversed' : $journal->state, 'total_debit' => ['amount' => $totalDebit->toString(), 'currency' => $journal->lines->first()?->currency], 'total_credit' => ['amount' => $totalCredit->toString(), 'currency' => $journal->lines->first()?->currency], 'version' => $journal->version];
+            })->all(),
+            'page' => ['limit' => $limit, 'next_cursor' => StableCursor::encode($journals->nextCursor(), $boundary, $binding)],
         ]);
     }
 
     /**
      * @param  array<int, array<string, mixed>>  $lines
      */
-    private function validateLines(string $entityId, array $lines, ?string $functionalCurrency = null): ?LedgerActionResult
+    private function validateLines(string $entityId, array $lines, ?string $functionalCurrency = null, ?string $entryDate = null): ?LedgerActionResult
     {
         if (count($lines) < 2) {
             return $this->validation('A journal requires at least two lines.', ['rule' => 'minimum_two_lines']);
@@ -309,7 +371,25 @@ final readonly class JournalService
             $credit = DecimalAmount::fromString($line['credit']['amount'] ?? '0');
             $currency = $line['debit']['currency'] ?? $line['credit']['currency'] ?? null;
             if ($functionalCurrency !== null && $currency !== $functionalCurrency) {
-                return $this->validation('Manual journal lines must use the entity functional currency.', ['rule' => 'functional_currency_only']);
+                return $this->validation('Functional debit and credit must use the entity functional currency.', ['rule' => 'functional_currency_mismatch']);
+            }
+
+            $foreign = $line['foreign_amount'] ?? null;
+            $reference = $line['exchange_rate_reference'] ?? null;
+            if (($foreign === null) !== ($reference === null)) {
+                return $this->validation('Foreign amounts require an exact RateRecord reference.', ['rule' => 'missing_rate_reference']);
+            }
+            if (is_array($foreign) && is_array($reference)) {
+                if (($foreign['currency'] ?? null) === $functionalCurrency || ($reference['base_currency'] ?? null) !== ($foreign['currency'] ?? null) || ($reference['quote_currency'] ?? null) !== $functionalCurrency) {
+                    return $this->validation('The rate reference currency pair does not match the journal line.', ['rule' => 'currency_pair_mismatch']);
+                }
+                if (! $this->rates->isExactReference($entityId, $reference, (string) $foreign['currency'], (string) $functionalCurrency, (string) $entryDate)) {
+                    return $this->validation('The RateRecord reference does not match immutable rate data.', ['rule' => 'rate_reference_mismatch']);
+                }
+                $functionalAmount = $debit->isZero() ? $credit->toString() : $debit->toString();
+                if (! $this->rates->matchesFunctionalAmount($entityId, $reference, (string) $foreign['amount'], $functionalAmount)) {
+                    return $this->validation('The foreign amount and RateRecord do not produce the functional amount.', ['rule' => 'functional_balance_mismatch']);
+                }
             }
 
             if ($debit->isPositive() && $credit->isPositive()) {
@@ -336,24 +416,6 @@ final readonly class JournalService
     }
 
     /**
-     * @return array<string, mixed>|null
-     */
-    private function findOutboxReplay(string $eventType, string $aggregateId, string $idempotencyKey): ?array
-    {
-        $event = OutboxMessage::query()
-            ->where('event_type', $eventType)
-            ->where('aggregate_id', $aggregateId)
-            ->where('metadata->idempotency_key', $idempotencyKey)
-            ->first();
-
-        if ($event === null) {
-            return null;
-        }
-
-        return ['event' => $event->payload, 'idempotent_replay' => true];
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function eventPayload(JournalEntry $journal): array
@@ -363,7 +425,7 @@ final readonly class JournalService
             'entityId' => $journal->entity_id,
             'periodRef' => $journal->period_ref,
             'entryDate' => $journal->entry_date->toDateString(),
-            'lines' => $journal->lines->map(fn ($line): array => [
+            'lines' => $journal->lines->map(fn (JournalLine $line): array => [
                 'accountId' => $line->account_id,
                 'debit' => ['amount' => $line->debit, 'currency' => $line->currency],
                 'credit' => ['amount' => $line->credit, 'currency' => $line->currency],
@@ -396,6 +458,8 @@ final readonly class JournalService
                 'description' => $line->description,
                 'debit' => DecimalAmount::fromString($line->debit)->isZero() ? null : ['amount' => $line->debit, 'currency' => $line->currency],
                 'credit' => DecimalAmount::fromString($line->credit)->isZero() ? null : ['amount' => $line->credit, 'currency' => $line->currency],
+                'foreign_amount' => $line->fx_amount === null ? null : ['amount' => $line->fx_amount, 'currency' => $line->fx_currency],
+                'exchange_rate_reference' => $line->rate_record_id === null ? null : ['rate_record_id' => $line->rate_record_id, 'base_currency' => $line->fx_currency, 'quote_currency' => $line->currency, 'rate' => $line->fx_rate, 'effective_date' => $line->fx_rate_effective_date?->toDateString()],
             ])->all(),
         ];
     }

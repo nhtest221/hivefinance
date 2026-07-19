@@ -266,7 +266,7 @@ final readonly class ApprovalLifecycleService
             return IdentityActionResult::error('idempotency_conflict', 'The idempotency key was used with a different request.', 409);
         }
 
-        return IdentityActionResult::replay($record->response_status, $record->response_body, ['Idempotency-Replayed' => 'true']);
+        return IdentityActionResult::replay($record->response_status, $record->response_body, ['Idempotent-Replay' => 'true']);
     }
 
     /** @param array<string, mixed> $response */

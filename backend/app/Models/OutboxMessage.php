@@ -10,6 +10,7 @@ use Override;
  * @property string $id
  * @property string $event_type
  * @property array<string, mixed>|null $metadata
+ * @property array<string, mixed> $payload
  */
 final class OutboxMessage extends Model
 {

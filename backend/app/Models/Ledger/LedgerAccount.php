@@ -12,10 +12,12 @@ use Override;
  * @property string $entity_id
  * @property string $code
  * @property string $name
+ * @property string|null $description
  * @property string $type
  * @property string $normal_balance
  * @property string $status
  * @property int $version
+ * @property array<string, mixed>|null $bank_attributes
  */
 final class LedgerAccount extends Model
 {
@@ -25,6 +27,7 @@ final class LedgerAccount extends Model
         'entity_id',
         'code',
         'name',
+        'description',
         'type',
         'normal_balance',
         'status',

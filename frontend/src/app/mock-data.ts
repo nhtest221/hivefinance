@@ -14,20 +14,6 @@ export const cashTrend = [
   { month: 'Jun', inflow: 11.8, outflow: 5.5 },
 ]
 
-export const accounts = [
-  ['1010', 'Cash in Bank - NRB', 'Asset', 'Active', 'BDT 12.80M'],
-  ['1060', 'Accounts Receivable', 'Asset', 'Active', 'BDT 9.84M'],
-  ['2010', 'Accounts Payable', 'Liability', 'Active', 'BDT 3.18M'],
-  ['4010', 'Client Service Revenue', 'Revenue', 'Active', 'BDT 42.10M'],
-  ['6220', 'FX Loss', 'Expense', 'Active', 'BDT 0.18M'],
-]
-
-export const journals = [
-  ['JE-2026-0714-001', 'Manual', 'Posted', 'Revenue accrual', 'BDT 820,000.0000', 'FY26-P01'],
-  ['JE-2026-0714-002', 'Manual', 'Draft', 'Month-end accrual', 'BDT 120,000.0000', 'FY26-P01'],
-  ['JE-2026-0713-009', 'Reversal', 'Posted', 'Correction entry', 'BDT 64,400.0000', 'FY26-P01'],
-]
-
 export const accountingPeriods = [
   ['FY26-P01', '1 Jul 2026', '31 Jul 2026', 'Open', 'Normal posting'],
   ['FY25-P12', '1 Jun 2026', '30 Jun 2026', 'Hard closed', 'Corrections route forward'],
@@ -63,18 +49,6 @@ export const banks = [
   ['NRB Current', 'BDT', 'BDT 12.8M', 'Reconciled', '30 Jun 2026'],
   ['SCB', 'BDT', 'BDT 4.1M', 'Unreconciled', '28 Jun 2026'],
   ['Payoneer', 'USD', 'USD 12,440', 'Matched', '29 Jun 2026'],
-]
-
-export const taxCodes = [
-  ['BD-VAT-15', 'Standard VAT', '15%', 'Output VAT 2020', 'Effective'],
-  ['BD-ITES-5', 'ITES VAT', '5%', 'Output VAT 2021', 'Effective'],
-  ['BD-EXPORT-0', 'Zero-rated Export', '0%', 'Input recoverable', 'Effective'],
-]
-
-export const fxRates = [
-  ['USD/BDT', '117.20', 'Manual', '14 Jul 2026', 'Active'],
-  ['CAD/BDT', '86.40', 'Manual', '14 Jul 2026', 'Active'],
-  ['USD/CAD', '1.36', 'Manual', '13 Jul 2026', 'Referenced'],
 ]
 
 export const auditRows = [

@@ -21,6 +21,11 @@ final class ApprovalCommandRegistry
         return $this->handlers[$this->key($commandType, $schemaVersion)] ?? null;
     }
 
+    public function replace(ApprovalCommandHandler $handler): void
+    {
+        $this->handlers[$this->key($handler->commandType(), $handler->schemaVersion())] = $handler;
+    }
+
     private function key(string $commandType, int $schemaVersion): string
     {
         return $commandType.':'.$schemaVersion;
