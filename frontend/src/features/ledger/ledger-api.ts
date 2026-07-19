@@ -33,6 +33,10 @@ export async function listAccounts() {
   return request<{ accounts: Account[] }>('/v1/accounts?status=active&limit=100')
 }
 
+export async function createAccount(input: { code: string; name: string; description: string | null; type: string }) {
+  return request<{ account: Account }>('/v1/accounts', { method: 'POST', headers: { 'Idempotency-Key': uuid() }, body: JSON.stringify(input) })
+}
+
 export async function createJournal(input: { entry_date: string; narration: string; lines: Array<{ account_id: string; description: string; debit: Money | null; credit: Money | null }> }) {
   return request<{ journal: Journal }>('/v1/journals', { method: 'POST', headers: { 'Idempotency-Key': uuid() }, body: JSON.stringify({ ...input, entry_type: 'manual' }) })
 }

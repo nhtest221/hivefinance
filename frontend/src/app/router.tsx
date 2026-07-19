@@ -6,7 +6,6 @@ import { LoginPage } from './pages/login-page'
 import {
   AuditLogPage,
   BankAccountsPage,
-  ChartOfAccountsPage,
   PayablesPage,
   ReceivablesPage,
   ReportsPage,
@@ -15,6 +14,7 @@ import {
 } from './pages/module-screens'
 import { ResetPasswordPage } from './pages/reset-password-page'
 import { ManualJournalPage } from '@/features/ledger/manual-journal-page'
+import { ChartOfAccountsPage } from '@/features/ledger/chart-of-accounts-page'
 import { TaxPage } from '@/features/tax/tax-page'
 import { FxPage } from '@/features/fx/fx-page'
 

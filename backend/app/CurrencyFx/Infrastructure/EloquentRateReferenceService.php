@@ -3,10 +3,13 @@
 namespace App\CurrencyFx\Infrastructure;
 
 use App\CurrencyFx\Application\RateReferenceService;
+use App\CurrencyFx\Domain\RealisedFxCalculator;
 use App\Models\CurrencyFx\RateRecord;
 
-final class EloquentRateReferenceService implements RateReferenceService
+final readonly class EloquentRateReferenceService implements RateReferenceService
 {
+    public function __construct(private RealisedFxCalculator $calculator) {}
+
     public function isExactReference(string $entityId, array $reference, string $baseCurrency, string $quoteCurrency, string $effectiveDate): bool
     {
         return RateRecord::query()->where('entity_id', $entityId)->whereKey($reference['rate_record_id'] ?? null)
@@ -17,5 +20,19 @@ final class EloquentRateReferenceService implements RateReferenceService
     public function markReferenced(string $entityId, string $rateRecordId): void
     {
         RateRecord::query()->where('entity_id', $entityId)->whereKey($rateRecordId)->update(['referenced' => true]);
+    }
+
+    public function matchesFunctionalAmount(string $entityId, array $reference, string $foreignAmount, string $functionalAmount): bool
+    {
+        $rate = RateRecord::query()->where('entity_id', $entityId)->whereKey($reference['rate_record_id'] ?? null)->value('rate');
+        $scale = config('valuation.fx.rounding_scale');
+        $mode = config('valuation.fx.rounding_mode');
+        if (! is_numeric($rate) || ! is_numeric($scale) || ! is_string($mode)) {
+            return false;
+        }
+
+        $calculated = $this->calculator->calculate($foreignAmount, (string) $rate, (string) $rate, (int) $scale, $mode);
+
+        return hash_equals($calculated['document_functional'], $functionalAmount);
     }
 }

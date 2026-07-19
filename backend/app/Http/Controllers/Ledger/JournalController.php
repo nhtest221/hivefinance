@@ -7,11 +7,22 @@ use App\Http\Requests\Ledger\StoreJournalRequest;
 use App\Ledger\Application\JournalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 final class JournalController
 {
     public function index(Request $request, JournalService $journals): JsonResponse
     {
+        $validator = Validator::make($request->query(), [
+            'account' => ['nullable', 'uuid'], 'period' => ['nullable', 'string', 'max:32'],
+            'status' => ['nullable', 'in:draft,posted,reversed'],
+            'entry_type' => ['nullable', 'in:manual,system,adjusting,reversal,revaluation,conversion'],
+            'from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'source_document_id' => ['nullable', 'uuid'], 'limit' => ['nullable', 'integer', 'between:1,100'], 'cursor' => ['nullable', 'string'],
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['error_code' => 'validation', 'message' => 'The request is invalid.', 'details' => $validator->errors()->toArray()], 400);
+        }
         $limit = filter_var($request->query('limit', 50), FILTER_VALIDATE_INT);
         if ($limit === false || $limit < 1 || $limit > 100) {
             return response()->json(['error_code' => 'validation', 'message' => 'limit must be between 1 and 100.', 'details' => []], 400);
@@ -52,6 +63,9 @@ final class JournalController
 
     public function post(Request $request, JournalService $journals, string $id): JsonResponse
     {
+        if ($request->all() !== []) {
+            return response()->json(['error_code' => 'validation', 'message' => 'Unknown fields are not allowed.', 'details' => ['body' => array_keys($request->all())]], 400);
+        }
         $result = $journals->post(
             $request->user(),
             (string) $request->header('X-Entity-Id'),

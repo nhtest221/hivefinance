@@ -1,42 +1,6 @@
-import { Alert, Badge, Button, Card, CardContent, CardHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
-import { accountingPeriods, accounts, auditRows, banks, fxRates, journals, payables, receivables, reports, settlements, taxCodes, trialBalanceRows } from '../mock-data'
+import { Badge, Button, Card, CardContent, CardHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { accountingPeriods, auditRows, banks, payables, receivables, reports, settlements, trialBalanceRows } from '../mock-data'
 import { ModulePage } from './module-page'
-
-export function ChartOfAccountsPage() {
-  return (
-    <ModulePage
-      title="Chart of Accounts"
-      description="Entity-scoped account structure with derived balance visibility."
-      badge="Ledger"
-      columns={['Code', 'Name', 'Class', 'Status', 'Derived balance']}
-      rows={accounts}
-      summary={[
-        { label: 'Active accounts', value: '72', meta: 'Across 5 classes' },
-        { label: 'Bank accounts', value: '7', meta: 'Ledger-owned master data' },
-        { label: 'Inactive accounts', value: '4', meta: 'Preserved for audit' },
-      ]}
-      aside={<ChartOfAccountsAside />}
-    />
-  )
-}
-
-export function JournalEntriesPage() {
-  return (
-    <ModulePage
-      title="Journal Entries"
-      description="Read-only posting workspace for manual and system entries."
-      badge="Accrual"
-      columns={['Entry ID', 'Type', 'Status', 'Source', 'Amount', 'Period']}
-      rows={journals}
-      summary={[
-        { label: 'Posted this period', value: '184', meta: 'System and manual' },
-        { label: 'Draft entries', value: '3', meta: 'Not posted' },
-        { label: 'Reversals', value: '2', meta: 'Linked corrections' },
-      ]}
-      aside={<JournalAside />}
-    />
-  )
-}
 
 export function ReceivablesPage() {
   return (
@@ -106,42 +70,6 @@ export function BankAccountsPage() {
   )
 }
 
-export function TaxPage() {
-  return (
-    <ModulePage
-      title="Tax"
-      description="Tax code registry, Bangladesh Tax Pack, and effective-dated versions."
-      badge="Compliance"
-      columns={['Code', 'Treatment', 'Rate', 'GL mapping', 'Version status']}
-      rows={taxCodes}
-      summary={[
-        { label: 'Tax pack', value: 'Bangladesh', meta: 'Pack #1' },
-        { label: 'Active codes', value: '9', meta: 'Versioned' },
-        { label: 'Return boxes', value: 'Mapped', meta: 'Mushak placeholders' },
-      ]}
-      aside={<ComplianceAside title="Tax configuration" />}
-    />
-  )
-}
-
-export function FxPage() {
-  return (
-    <ModulePage
-      title="FX"
-      description="Effective-dated rate records and revaluation run visibility."
-      badge="Currency"
-      columns={['Pair', 'Rate', 'Source', 'Effective date', 'Status']}
-      rows={fxRates}
-      summary={[
-        { label: 'Functional currencies', value: 'BDT / CAD', meta: 'Per entity' },
-        { label: 'Referenced rates', value: '48', meta: 'Immutable once used' },
-        { label: 'Pending revaluation', value: 'FY26-P01', meta: 'Soft close input' },
-      ]}
-      aside={<ComplianceAside title="Rate governance" />}
-    />
-  )
-}
-
 export function AuditLogPage() {
   return (
     <ModulePage
@@ -177,54 +105,6 @@ export function ReportsPage() {
   )
 }
 
-function ChartOfAccountsAside() {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">Account governance</h2>
-          <Badge variant="info">M2</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <Alert>Balances are derived from immutable posted journal lines.</Alert>
-        <div className="grid gap-2">
-          <div className="flex items-center justify-between"><span className="text-[var(--color-text-muted)]">Code uniqueness</span><span>Per entity</span></div>
-          <div className="flex items-center justify-between"><span className="text-[var(--color-text-muted)]">Type changes</span><span>No postings only</span></div>
-          <div className="flex items-center justify-between"><span className="text-[var(--color-text-muted)]">Deactivation</span><span>Soft only</span></div>
-        </div>
-        <Button variant="secondary" className="w-full">New account</Button>
-      </CardContent>
-    </Card>
-  )
-}
-
-function JournalAside() {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">Posting controls</h2>
-          <Badge variant="warning">Draft first</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-md border border-[var(--color-border)] p-3">
-          <p className="text-xs font-medium uppercase text-[var(--color-text-subtle)]">Validation</p>
-          <p className="mt-2 text-sm">Debits and credits must balance before posting. Posted entries are immutable; corrections use reversal entries.</p>
-        </div>
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center justify-between"><span>Period</span><Badge variant="success">FY26-P01 open</Badge></div>
-          <div className="flex items-center justify-between"><span>Idempotency</span><Badge variant="info">Required</Badge></div>
-          <div className="flex items-center justify-between"><span>Audit event</span><Badge>JournalPosted</Badge></div>
-        </div>
-        <Button className="w-full">Create manual journal</Button>
-        <Button variant="secondary" className="w-full">Reverse selected</Button>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function SettingsPage() {
   return (
     <ModulePage
@@ -245,23 +125,6 @@ export function SettingsPage() {
       ]}
       aside={<SettingsAside />}
     />
-  )
-}
-
-function ComplianceAside({ title }: { title: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <h2 className="text-sm font-semibold">{title}</h2>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Alert>Configuration changes are high-risk actions in the frozen access model.</Alert>
-        <div className="rounded-md border border-[var(--color-border)] p-3 text-sm">
-          <p className="font-medium">Review posture</p>
-          <p className="mt-1 text-[var(--color-text-muted)]">Versioned, reproducible, and audit-visible.</p>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 

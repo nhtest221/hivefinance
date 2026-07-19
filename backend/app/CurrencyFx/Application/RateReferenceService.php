@@ -8,4 +8,7 @@ interface RateReferenceService
     public function isExactReference(string $entityId, array $reference, string $baseCurrency, string $quoteCurrency, string $effectiveDate): bool;
 
     public function markReferenced(string $entityId, string $rateRecordId): void;
+
+    /** @param array<string, mixed> $reference */
+    public function matchesFunctionalAmount(string $entityId, array $reference, string $foreignAmount, string $functionalAmount): bool;
 }

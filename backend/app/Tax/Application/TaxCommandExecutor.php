@@ -2,7 +2,7 @@
 
 namespace App\Tax\Application;
 
-use App\Models\Ledger\LedgerAccount;
+use App\Ledger\Application\AccountReferenceQuery;
 use App\Models\Tax\TaxCode;
 use App\Models\Tax\TaxPack;
 use App\Support\Audit\AuditLogger;
@@ -11,7 +11,7 @@ use RuntimeException;
 
 final readonly class TaxCommandExecutor
 {
-    public function __construct(private AuditLogger $audit, private Outbox $outbox) {}
+    public function __construct(private AuditLogger $audit, private Outbox $outbox, private AccountReferenceQuery $accounts) {}
 
     /**
      * @param  array<string, mixed>  $payload
@@ -49,7 +49,7 @@ final readonly class TaxCommandExecutor
      */
     private function createVersion(array $data, string $entityId, string $actorId, string $correlationId): array
     {
-        $code = TaxCode::query()->where('entity_id', $entityId)->findOrFail($data['tax_code_id']);
+        $code = TaxCode::query()->where('entity_id', $entityId)->lockForUpdate()->findOrFail($data['tax_code_id']);
         if ($code->version !== (int) $data['expected_version']) {
             throw new RuntimeException('Stale tax code version.');
         }
@@ -59,7 +59,7 @@ final readonly class TaxCommandExecutor
             throw new RuntimeException('Tax effective dates overlap.');
         }
         foreach (array_filter($data['gl_mapping']) as $accountId) {
-            if (! is_string($accountId) || ! LedgerAccount::query()->where('entity_id', $entityId)->whereKey($accountId)->exists()) {
+            if (! is_string($accountId) || ! $this->accounts->isOwnedByEntity($entityId, $accountId)) {
                 throw new RuntimeException('Invalid tax GL mapping.');
             }
         }
@@ -85,7 +85,7 @@ final readonly class TaxCommandExecutor
      */
     private function configurePack(array $data, string $entityId, string $actorId, string $correlationId): array
     {
-        $pack = TaxPack::query()->where('entity_id', $entityId)->where('jurisdiction', $data['jurisdiction'])->first();
+        $pack = TaxPack::query()->where('entity_id', $entityId)->where('jurisdiction', $data['jurisdiction'])->lockForUpdate()->first();
         $expected = $data['expected_version'] ?? null;
         if ($pack !== null && $pack->version !== $expected) {
             throw new RuntimeException('Stale tax pack version.');

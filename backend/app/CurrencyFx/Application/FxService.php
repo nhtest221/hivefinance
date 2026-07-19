@@ -7,26 +7,26 @@ use App\Identity\Application\ApprovalLifecycleService;
 use App\Identity\Application\ApprovalPolicyQuery;
 use App\Identity\Application\EntityReferenceQuery;
 use App\Identity\Domain\OriginatingCommand;
+use App\Ledger\Application\AccountReferenceQuery;
+use App\Ledger\Application\ForeignCurrencyPositionQuery;
 use App\Ledger\Application\SystemPostingService;
-use App\Ledger\Domain\DecimalAmount;
 use App\Models\CurrencyFx\RateRecord;
 use App\Models\CurrencyFx\RevaluationRun;
 use App\Models\IdempotencyRecord;
-use App\Models\Ledger\JournalLine;
-use App\Models\Ledger\LedgerAccount;
 use App\Models\User;
 use App\Period\Application\PeriodQuery;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
+use App\Support\Pagination\StableCursor;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Pagination\Cursor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 final readonly class FxService
 {
-    public function __construct(private FxAuthorizationService $authorization, private PeriodQuery $periods, private AuditLogger $audit, private Outbox $outbox, private ApplicableRateQuery $applicableRates, private RealisedFxCalculator $calculator, private EntityReferenceQuery $entities, private SystemPostingService $posting, private RateReferenceService $rateReferences, private ApprovalPolicyQuery $approvalPolicy, private ApprovalLifecycleService $approvals) {}
+    public function __construct(private FxAuthorizationService $authorization, private PeriodQuery $periods, private AuditLogger $audit, private Outbox $outbox, private ApplicableRateQuery $applicableRates, private RealisedFxCalculator $calculator, private EntityReferenceQuery $entities, private SystemPostingService $posting, private ForeignCurrencyPositionQuery $positions, private AccountReferenceQuery $accounts, private RateReferenceService $rateReferences, private ApprovalPolicyQuery $approvalPolicy, private ApprovalLifecycleService $approvals) {}
 
     /** @param array<string, mixed> $data */
     public function addRate(User $actor, string $entityId, array $data, ?string $key, bool $approved = false): FxActionResult
@@ -83,13 +83,19 @@ final readonly class FxService
         if (($filters['base_currency'] === null) !== ($filters['quote_currency'] === null)) {
             return $this->error('validation', 'base_currency and quote_currency must be supplied together.', 400);
         }
-        $page = RateRecord::query()->where('entity_id', $entityId)
+        $binding = ['entity_id' => $entityId, 'filters' => $filters, 'order' => 'effective_date_desc,id_desc'];
+        try {
+            [$decodedCursor, $boundary] = StableCursor::decode(is_string($cursor) ? $cursor : null, $binding);
+        } catch (InvalidArgumentException $exception) {
+            return $this->error('validation', $exception->getMessage(), 400);
+        }
+        $page = RateRecord::query()->where('entity_id', $entityId)->where('created_at', '<=', $boundary)
             ->when($filters['base_currency'], fn ($q, $v) => $q->where('base_currency', $v))->when($filters['quote_currency'], fn ($q, $v) => $q->where('quote_currency', $v))
             ->when($filters['effective_from'], fn ($q, $v) => $q->whereDate('effective_date', '>=', $v))->when($filters['effective_to'], fn ($q, $v) => $q->whereDate('effective_date', '<=', $v))
             ->when($filters['source'], fn ($q, $v) => $q->where('source', $v))->when($filters['referenced'] !== null, fn ($q) => $q->where('referenced', $filters['referenced']))
-            ->orderByDesc('effective_date')->orderByDesc('id')->cursorPaginate($limit, ['*'], 'cursor', is_string($cursor) ? Cursor::fromEncoded($cursor) : null);
+            ->orderByDesc('effective_date')->orderByDesc('id')->cursorPaginate($limit, ['*'], 'cursor', $decodedCursor);
 
-        return new FxActionResult(['rate_records' => $page->getCollection()->map(fn (RateRecord $rate) => self::presentRate($rate))->all(), 'page' => ['limit' => $limit, 'next_cursor' => $page->nextCursor()?->encode()]]);
+        return new FxActionResult(['rate_records' => $page->getCollection()->map(fn (RateRecord $rate) => self::presentRate($rate))->all(), 'page' => ['limit' => $limit, 'next_cursor' => StableCursor::encode($page->nextCursor(), $boundary, $binding)]]);
     }
 
     /** @param array<string, mixed> $data */
@@ -119,6 +125,11 @@ final readonly class FxService
         foreach (['source_precedence', 'rounding_mode', 'rounding_scale', 'unrealised_gain_account_id', 'unrealised_loss_account_id'] as $setting) {
             if (config('valuation.fx.'.$setting) === null || config('valuation.fx.'.$setting) === []) {
                 return $this->error('invariant_violation', 'Required revaluation policy is not configured.', 422, ['rule' => 'missing_period_end_rate', 'configuration' => $setting]);
+            }
+        }
+        foreach (['unrealised_gain_account_id', 'unrealised_loss_account_id'] as $setting) {
+            if (! $this->accounts->isOwnedByEntity($entityId, (string) config('valuation.fx.'.$setting))) {
+                return $this->error('invariant_violation', 'The configured revaluation account does not belong to the entity.', 422, ['rule' => 'invalid_revaluation_account', 'configuration' => $setting]);
             }
         }
         if (RevaluationRun::query()->where('entity_id', $entityId)->where('period_ref', $period->period_ref)->exists()) {
@@ -208,39 +219,24 @@ final readonly class FxService
         $figures = [];
         $rateIds = [];
         $postingLines = [];
-        $accounts = LedgerAccount::query()->where('entity_id', $entityId)->whereNotNull('bank_attributes')->get();
-        foreach ($accounts as $account) {
-            $foreignCurrency = is_array($account->bank_attributes) ? ($account->bank_attributes['currency'] ?? null) : null;
-            if (! is_string($foreignCurrency) || $foreignCurrency === $functionalCurrency) {
-                continue;
-            }
-            $foreign = DecimalAmount::zero();
-            $functional = DecimalAmount::zero();
-            $lines = JournalLine::query()->where('entity_id', $entityId)->where('account_id', $account->id)->whereNotNull('fx_amount')->whereHas('journalEntry', fn ($query) => $query->where('state', 'posted')->whereDate('entry_date', '<=', $date))->get();
-            foreach ($lines as $line) {
-                $foreignAmount = DecimalAmount::fromString($line->fx_amount);
-                $foreign = $foreign->add(DecimalAmount::fromString($line->debit)->isZero() ? $foreignAmount->negate() : $foreignAmount);
-                $functional = $functional->add(DecimalAmount::fromString($line->debit))->subtract(DecimalAmount::fromString($line->credit));
-            }
-            if ($foreign->isZero()) {
-                continue;
-            }
+        foreach ($this->positions->bankPositions($entityId, $date, $functionalCurrency) as $position) {
+            $foreignCurrency = $position['foreign_currency'];
             $rate = $this->applicableRates->find($entityId, $foreignCurrency, $functionalCurrency, $date);
             if ($rate === null) {
                 return null;
             }
-            $calculated = $this->calculator->calculate($foreign->toString(), '0.00000000', (string) $rate['rate'], (int) config('valuation.fx.rounding_scale'), (string) config('valuation.fx.rounding_mode'));
-            $difference = DecimalAmount::fromString($calculated['settlement_functional'])->subtract($functional);
-            if ($difference->isZero()) {
+            $calculated = $this->calculator->calculate($position['foreign_amount'], '0.00000000', (string) $rate['rate'], (int) config('valuation.fx.rounding_scale'), (string) config('valuation.fx.rounding_mode'));
+            $difference = $this->calculator->subtract($calculated['settlement_functional'], $position['functional_amount'], (int) config('valuation.fx.rounding_scale'));
+            if ($this->calculator->isZero($difference, (int) config('valuation.fx.rounding_scale'))) {
                 continue;
             }
-            $gain = ! str_starts_with($difference->toString(), '-');
-            $amount = ltrim($difference->toString(), '-');
+            $gain = ! str_starts_with($difference, '-');
+            $amount = ltrim($difference, '-');
             $offset = (string) config($gain ? 'valuation.fx.unrealised_gain_account_id' : 'valuation.fx.unrealised_loss_account_id');
             $common = ['currency' => $functionalCurrency, 'fx_amount' => null, 'fx_currency' => null, 'rate_record_id' => $rate['id'], 'fx_rate' => $rate['rate'], 'fx_rate_effective_date' => $rate['effective_date']];
-            $postingLines[] = [...$common, 'account_id' => $account->id, 'description' => 'FX revaluation', 'debit' => $gain ? $amount : '0.0000', 'credit' => $gain ? '0.0000' : $amount];
+            $postingLines[] = [...$common, 'account_id' => $position['account_id'], 'description' => 'FX revaluation', 'debit' => $gain ? $amount : '0.0000', 'credit' => $gain ? '0.0000' : $amount];
             $postingLines[] = [...$common, 'account_id' => $offset, 'description' => 'Unrealised FX '.($gain ? 'gain' : 'loss'), 'debit' => $gain ? '0.0000' : $amount, 'credit' => $gain ? $amount : '0.0000'];
-            $figures[] = ['account_id' => $account->id, 'amount' => ['amount' => $difference->toString(), 'currency' => $functionalCurrency]];
+            $figures[] = ['account_id' => $position['account_id'], 'amount' => ['amount' => $difference, 'currency' => $functionalCurrency]];
             $rateIds[] = (string) $rate['id'];
         }
 

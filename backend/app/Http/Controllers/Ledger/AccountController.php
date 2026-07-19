@@ -48,11 +48,14 @@ final class AccountController
             $request->header('If-Match'),
         );
 
-        return response()->json($result->payload, $result->status);
+        return response()->json($result->payload, $result->status, $result->headers);
     }
 
     public function deactivate(Request $request, AccountService $accounts, string $id): JsonResponse
     {
+        if ($request->all() !== []) {
+            return response()->json(['error_code' => 'validation', 'message' => 'Unknown fields are not allowed.', 'details' => ['body' => array_keys($request->all())]], 400);
+        }
         $result = $accounts->deactivate($request->user(), (string) $request->header('X-Entity-Id'), $id, $request->header('Idempotency-Key'), $request->header('If-Match'));
 
         return response()->json($result->payload, $result->status, $result->headers);

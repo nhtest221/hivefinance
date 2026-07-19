@@ -12,6 +12,7 @@ use App\Models\Period\AccountingPeriod;
 use App\Models\Tax\TaxCode;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 
@@ -56,6 +57,8 @@ it('executes four-eyes tax configuration through the durable approval lifecycle'
 it('stores append-only rates and binds foreign journal lines to the exact record', function (): void {
     config()->set('valuation.fx.sources', ['TEST_SOURCE']);
     config()->set('valuation.fx.source_precedence', ['TEST_SOURCE']);
+    config()->set('valuation.fx.rounding_mode', 'half_up');
+    config()->set('valuation.fx.rounding_scale', 4);
     [$maker, , $entity] = m1Actors(['fx.rates.manage', 'fx.rates.read', 'ledger.journals.create']);
     $cash = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1000', 'name' => 'Cash', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']);
     $revenue = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '4000', 'name' => 'Revenue', 'type' => 'revenue', 'normal_balance' => 'credit', 'status' => 'active']);
@@ -64,12 +67,19 @@ it('stores append-only rates and binds foreign journal lines to the exact record
         ->assertCreated()->json('rate_record');
 
     $this->postJson('/v1/journals', ['entry_date' => '2026-07-15', 'entry_type' => 'manual', 'lines' => [
+        ['account_id' => $cash->id, 'debit' => ['amount' => '99.0000', 'currency' => 'BDT'], 'credit' => null, 'foreign_amount' => ['amount' => '1.0000', 'currency' => 'USD'], 'exchange_rate_reference' => ['rate_record_id' => $rate['id'], 'base_currency' => 'USD', 'quote_currency' => 'BDT', 'rate' => '100.00000000', 'effective_date' => '2026-07-15']],
+        ['account_id' => $revenue->id, 'debit' => null, 'credit' => ['amount' => '99.0000', 'currency' => 'BDT'], 'foreign_amount' => null, 'exchange_rate_reference' => null],
+    ]], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])
+        ->assertUnprocessable()->assertJsonPath('details.rule', 'functional_balance_mismatch');
+
+    $this->postJson('/v1/journals', ['entry_date' => '2026-07-15', 'entry_type' => 'manual', 'lines' => [
         ['account_id' => $cash->id, 'debit' => ['amount' => '100.0000', 'currency' => 'BDT'], 'credit' => null, 'foreign_amount' => ['amount' => '1.0000', 'currency' => 'USD'], 'exchange_rate_reference' => ['rate_record_id' => $rate['id'], 'base_currency' => 'USD', 'quote_currency' => 'BDT', 'rate' => '100.00000000', 'effective_date' => '2026-07-15']],
         ['account_id' => $revenue->id, 'debit' => null, 'credit' => ['amount' => '100.0000', 'currency' => 'BDT'], 'foreign_amount' => null, 'exchange_rate_reference' => null],
     ]], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])
         ->assertCreated()->assertJsonPath('journal.lines.0.exchange_rate_reference.rate_record_id', $rate['id']);
 
     expect(RateRecord::query()->whereKey($rate['id'])->exists())->toBeTrue()
+        ->and(DB::table('ledger_account_balance_projections')->where('entity_id', $entity->id)->count())->toBe(0)
         ->and(OutboxMessage::query()->where('event_type', 'RateRecordAdded')->exists())->toBeTrue();
 });
 
@@ -105,6 +115,19 @@ it('routes configured FX commands through durable maker checker approval', funct
         ->and(OutboxMessage::query()->where('event_type', 'ApprovalGranted')->exists())->toBeTrue();
 });
 
+it('binds FX cursors to the entity filters and read boundary', function (): void {
+    [$maker, , $entity] = m1Actors(['fx.rates.read']);
+    foreach (['2026-07-14', '2026-07-15'] as $date) {
+        RateRecord::query()->create(['entity_id' => $entity->id, 'base_currency' => 'USD', 'quote_currency' => 'BDT', 'rate' => '100.00000000', 'effective_date' => $date, 'source' => 'TEST_SOURCE']);
+    }
+    Sanctum::actingAs($maker);
+    $cursor = $this->getJson('/v1/fx/rates?base_currency=USD&quote_currency=BDT&limit=1', ['X-Entity-Id' => $entity->id])
+        ->assertOk()->json('page.next_cursor');
+
+    $this->getJson('/v1/fx/rates?base_currency=EUR&quote_currency=BDT&limit=1&cursor='.urlencode((string) $cursor), ['X-Entity-Id' => $entity->id])
+        ->assertBadRequest()->assertJsonPath('error_code', 'validation');
+});
+
 it('fails revaluation safely when policy configuration is absent', function (): void {
     [$maker, , $entity] = m1Actors(['fx.revaluation.run']);
     AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'soft_closed']);
@@ -138,7 +161,11 @@ it('posts and links the configured next-period revaluation reversal', function (
     expect($rate->refresh()->referenced)->toBeTrue()
         ->and(app(FxService::class)->reverseRevaluation($entity->id, $run['id'], $maker->id))->toBeTrue();
     $reversalId = JournalEntry::query()->where('reversal_of_entry_id', $run['journal_entry_ids'][0])->value('id');
+    $originalLines = JournalEntry::query()->with('lines')->findOrFail($run['journal_entry_ids'][0])->lines->sortBy('line_no')->values();
+    $reversalLines = JournalEntry::query()->with('lines')->findOrFail($reversalId)->lines->sortBy('line_no')->values();
     expect($reversalId)->not->toBeNull()
+        ->and($reversalLines->pluck('debit')->all())->toBe($originalLines->pluck('credit')->all())
+        ->and($reversalLines->pluck('credit')->all())->toBe($originalLines->pluck('debit')->all())
         ->and(OutboxMessage::query()->where('event_type', 'RevaluationReversed')->exists())->toBeTrue();
 });
 

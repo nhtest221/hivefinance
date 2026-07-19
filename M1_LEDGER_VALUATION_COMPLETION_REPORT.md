@@ -74,7 +74,7 @@ Milestone: frozen roadmap **M1 Ledger + Valuation**
 
 ## Tests and Validation
 
-- Backend: 41 tests, 203 assertions.
+- Backend: 43 tests, 216 assertions.
 - Added coverage for Tax and configured FX four-eyes execution, FX RateRecord/audit/outbox behavior, exact foreign journal references, safe missing revaluation configuration, posted/referenced rates and next-period reversal linkage, reversal approval integration, and realised-FX arithmetic.
 - Pint, PHPStan, Rector dry-run, context-boundary guard, SQLite fresh migration, frontend typecheck/lint/build, API JSON/route uniqueness, and `git diff --check` pass.
 
@@ -92,3 +92,13 @@ Milestone: frozen roadmap **M1 Ledger + Valuation**
 - Receivables, Payables, Settlement, Notes, full Period Close, Migration, Reconciliation, and later Reporting remain untouched.
 - Revaluation currently consumes M1 foreign-bank Ledger balances. Foreign AR/AP open items join the same internal valuation contract when their owning contexts are implemented in M2.
 - Consolidation, inverse/cross-rate generation, feed selection, and revaluation rerun policy remain unimplemented configuration/governance boundaries.
+
+## Pre-merge audit corrections
+
+- Verified the complete migration, indexes, uniqueness constraints, rollback/reapply path, and immutable RateRecord/TaxCodeVersion triggers on PostgreSQL 17.
+- Enforced exact foreign-to-functional conversion against the immutable RateRecord and configured rounding policy.
+- Added `JournalPosted` for reversal journals so projections reverse with the ledger.
+- Removed Tax/FX direct Ledger table access in favor of Ledger application contracts.
+- Bound list cursors to entity, filters, ordering, and a stable read boundary.
+- Forced PostgreSQL application sessions to UTC and completed request/query validation gaps.
+- Replaced remaining mock M1 Chart of Accounts UI with capability-aware API flows.

@@ -20,6 +20,16 @@ final class RealisedFxCalculator
         return ['document_functional' => $document, 'settlement_functional' => $settlement, 'realised_fx' => $this->format($difference, $factor, $scale), 'classification' => $difference >= 0 ? 'gain' : 'loss'];
     }
 
+    public function subtract(string $left, string $right, int $scale): string
+    {
+        return $this->format($this->units($left, $scale) - $this->units($right, $scale), 10 ** $scale, $scale);
+    }
+
+    public function isZero(string $value, int $scale): bool
+    {
+        return $this->units($value, $scale) === 0;
+    }
+
     private function multiply(string $amount, string $rate, int $scale, string $mode): string
     {
         $a = $this->scaled($amount, 4);

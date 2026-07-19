@@ -16,11 +16,12 @@ use App\Models\User;
 use App\Period\Application\PeriodQuery;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
+use App\Support\Pagination\StableCursor;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Pagination\Cursor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 final readonly class JournalService
 {
@@ -284,6 +285,9 @@ final readonly class JournalService
                     'reversalOfEntryId' => $original->id,
                     'reversalEntryId' => $reversal->id,
                 ];
+                $this->outbox->record('JournalPosted', 'JournalEntry', $reversal->id, $this->eventPayload($reversal->load('lines')), $entityId, metadata: [
+                    'idempotency_key' => $idempotencyKey,
+                ]);
                 $this->outbox->record('JournalReversed', 'JournalEntry', $reversal->id, $payload, $entityId, metadata: [
                     'idempotency_key' => $idempotencyKey,
                 ]);
@@ -308,9 +312,16 @@ final readonly class JournalService
             return $this->authorization->denyResponse($permission);
         }
 
+        $binding = ['entity_id' => $entityId, 'filters' => $filters, 'order' => 'entry_date_desc,id_desc'];
+        try {
+            [$decodedCursor, $boundary] = StableCursor::decode(is_string($cursor) ? $cursor : null, $binding);
+        } catch (InvalidArgumentException $exception) {
+            return new LedgerActionResult(['error_code' => 'validation', 'message' => $exception->getMessage(), 'details' => []], 400);
+        }
         $query = JournalEntry::query()
             ->with('lines')
             ->where('entity_id', $entityId)
+            ->where('created_at', '<=', $boundary)
             ->when($filters['period'], fn ($query, $value) => $query->where('period_ref', $value))
             ->when($filters['status'] === 'reversed', fn ($query) => $query->where('state', 'posted')->whereHas('reversal'))
             ->when($filters['status'] !== null && $filters['status'] !== 'reversed', fn ($query) => $query->where('state', $filters['status']))
@@ -321,7 +332,7 @@ final readonly class JournalService
             ->when($filters['account'], fn ($query, $value) => $query->whereHas('lines', fn ($lines) => $lines->where('account_id', $value)))
             ->orderByDesc('entry_date')->orderByDesc('id');
 
-        $journals = $query->cursorPaginate($limit, ['*'], 'cursor', is_string($cursor) ? Cursor::fromEncoded($cursor) : null);
+        $journals = $query->cursorPaginate($limit, ['*'], 'cursor', $decodedCursor);
 
         return new LedgerActionResult([
             'journals' => $journals->getCollection()->map(function (JournalEntry $journal): array {
@@ -330,7 +341,7 @@ final readonly class JournalService
 
                 return ['id' => $journal->id, 'journal_number' => $journal->journal_number, 'entry_date' => $journal->entry_date->toDateString(), 'entry_type' => $journal->entry_type, 'state' => $journal->reversal()->exists() ? 'reversed' : $journal->state, 'total_debit' => ['amount' => $totalDebit->toString(), 'currency' => $journal->lines->first()?->currency], 'total_credit' => ['amount' => $totalCredit->toString(), 'currency' => $journal->lines->first()?->currency], 'version' => $journal->version];
             })->all(),
-            'page' => ['limit' => $limit, 'next_cursor' => $journals->nextCursor()?->encode()],
+            'page' => ['limit' => $limit, 'next_cursor' => StableCursor::encode($journals->nextCursor(), $boundary, $binding)],
         ]);
     }
 
@@ -374,6 +385,10 @@ final readonly class JournalService
                 }
                 if (! $this->rates->isExactReference($entityId, $reference, (string) $foreign['currency'], (string) $functionalCurrency, (string) $entryDate)) {
                     return $this->validation('The RateRecord reference does not match immutable rate data.', ['rule' => 'rate_reference_mismatch']);
+                }
+                $functionalAmount = $debit->isZero() ? $credit->toString() : $debit->toString();
+                if (! $this->rates->matchesFunctionalAmount($entityId, $reference, (string) $foreign['amount'], $functionalAmount)) {
+                    return $this->validation('The foreign amount and RateRecord do not produce the functional amount.', ['rule' => 'functional_balance_mismatch']);
                 }
             }
 

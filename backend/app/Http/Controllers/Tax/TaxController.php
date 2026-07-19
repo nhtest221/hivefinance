@@ -8,11 +8,19 @@ use App\Http\Requests\Tax\StoreTaxPackRequest;
 use App\Tax\Application\TaxService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 final class TaxController
 {
     public function index(Request $request, TaxService $tax): JsonResponse
     {
+        $validator = Validator::make($request->query(), [
+            'jurisdiction' => ['nullable', 'string', 'max:32'], 'status' => ['nullable', 'in:active,inactive'],
+            'effective_on' => ['nullable', 'date_format:Y-m-d'], 'limit' => ['nullable', 'integer', 'between:1,100'], 'cursor' => ['nullable', 'string'],
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['error_code' => 'validation', 'message' => 'The request is invalid.', 'details' => $validator->errors()->toArray()], 400);
+        }
         $limit = filter_var($request->query('limit', 50), FILTER_VALIDATE_INT);
         if ($limit === false || $limit < 1 || $limit > 100) {
             return response()->json(['error_code' => 'validation', 'message' => 'limit must be between 1 and 100.', 'details' => []], 400);

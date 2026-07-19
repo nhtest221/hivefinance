@@ -7,10 +7,11 @@ use App\Models\Ledger\LedgerAccount;
 use App\Models\User;
 use App\Support\Audit\AuditLogger;
 use App\Support\Outbox\Outbox;
+use App\Support\Pagination\StableCursor;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Pagination\Cursor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 final readonly class AccountService
 {
@@ -191,13 +192,19 @@ final readonly class AccountService
             return $this->authorization->denyResponse($permission);
         }
 
-        $decodedCursor = is_string($cursor) ? Cursor::fromEncoded($cursor) : null;
+        $binding = ['entity_id' => $entityId, 'status' => $status, 'order' => 'code,id'];
+        try {
+            [$decodedCursor, $boundary] = StableCursor::decode(is_string($cursor) ? $cursor : null, $binding);
+        } catch (InvalidArgumentException $exception) {
+            return $this->validation($exception->getMessage(), 400);
+        }
         $accounts = LedgerAccount::query()->where('entity_id', $entityId)->where('status', $status)
+            ->where('created_at', '<=', $boundary)
             ->orderBy('code')->orderBy('id')->cursorPaginate($limit, ['*'], 'cursor', $decodedCursor);
 
         return new LedgerActionResult([
             'accounts' => $accounts->getCollection()->map(fn (LedgerAccount $account): array => $this->present($account))->all(),
-            'page' => ['limit' => $limit, 'next_cursor' => $accounts->nextCursor()?->encode()],
+            'page' => ['limit' => $limit, 'next_cursor' => StableCursor::encode($accounts->nextCursor(), $boundary, $binding)],
         ]);
     }
 

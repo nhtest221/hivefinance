@@ -12,3 +12,10 @@ it('calculates realised FX per exact tranche with configured rounding', function
         'classification' => 'gain',
     ]);
 });
+
+it('classifies a negative realised difference as a loss', function (): void {
+    $result = (new RealisedFxCalculator)->calculate('10.0000', '102.00000000', '100.00000000', 4, 'half_even');
+
+    expect($result['realised_fx'])->toBe('-20.0000')
+        ->and($result['classification'])->toBe('loss');
+});

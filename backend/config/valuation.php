@@ -3,6 +3,10 @@
 return [
     'tax' => [
         'jurisdictions' => array_values(array_filter(explode(',', (string) env('HIVEFIN_TAX_JURISDICTIONS', '')))),
+        'calculation_methods' => array_values(array_filter(explode(',', (string) env('HIVEFIN_TAX_CALCULATION_METHODS', '')))),
+        'return_box_keys' => array_values(array_filter(explode(',', (string) env('HIVEFIN_TAX_RETURN_BOX_KEYS', '')))),
+        'pack_template_keys' => array_values(array_filter(explode(',', (string) env('HIVEFIN_TAX_PACK_TEMPLATE_KEYS', '')))),
+        'pack_policy_keys' => array_values(array_filter(explode(',', (string) env('HIVEFIN_TAX_PACK_POLICY_KEYS', '')))),
     ],
     'fx' => [
         'sources' => array_values(array_filter(explode(',', (string) env('HIVEFIN_FX_SOURCES', '')))),

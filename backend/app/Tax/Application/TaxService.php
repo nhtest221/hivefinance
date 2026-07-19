@@ -8,8 +8,9 @@ use App\Models\Tax\TaxCode;
 use App\Models\Tax\TaxCodeVersion;
 use App\Models\Tax\TaxPack;
 use App\Models\User;
-use Illuminate\Pagination\Cursor;
+use App\Support\Pagination\StableCursor;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 final readonly class TaxService
 {
@@ -40,8 +41,20 @@ final readonly class TaxService
             if ($ifMatch !== null && preg_match('/^"?\d+"?$/', $ifMatch) === 1 && $code->version !== (int) trim($ifMatch, '"')) {
                 return new TaxActionResult(['error_code' => 'concurrency_conflict', 'message' => 'The tax code version is stale.', 'details' => [], 'required_version' => $code->version], 409);
             }
+            $methods = config('valuation.tax.calculation_methods');
+            $returnBoxKeys = config('valuation.tax.return_box_keys');
+            if (! is_array($methods) || ! in_array($data['calculation_method'], $methods, true)
+                || ! is_array($returnBoxKeys) || array_diff(array_keys($data['return_box_mapping']), $returnBoxKeys) !== []) {
+                return $this->error('invariant_violation', 'The tax calculation or return-box mapping is not configured.', 422);
+            }
         }
         if ($type === 'tax_pack_configure') {
+            $templateKeys = config('valuation.tax.pack_template_keys');
+            $policyKeys = config('valuation.tax.pack_policy_keys');
+            if (! is_array($templateKeys) || array_diff(array_keys($data['return_template']), $templateKeys) !== []
+                || ! is_array($policyKeys) || array_diff(array_keys($data['policy']), $policyKeys) !== []) {
+                return new TaxActionResult(['error_code' => 'invariant_violation', 'message' => 'The TaxPack schema is not configured.', 'details' => ['rule' => 'invalid_tax_pack_configuration']], 422);
+            }
             $pack = TaxPack::query()->where('entity_id', $entityId)->where('jurisdiction', $data['jurisdiction'])->first();
             if ($pack instanceof TaxPack && $ifMatch === null) {
                 return $this->error('precondition_required', 'If-Match is required for TaxPack revision.', 428);
@@ -72,8 +85,14 @@ final readonly class TaxService
         if (! $this->authorization->can($actor, $entityId, 'tax.codes.read')) {
             return $this->authorization->denied('tax.codes.read');
         }
-        $page = TaxCode::query()->where('entity_id', $entityId)->when($jurisdiction, fn ($q) => $q->where('jurisdiction', $jurisdiction))->when($status, fn ($q) => $q->where('status', $status))
-            ->orderBy('jurisdiction')->orderBy('code')->orderBy('id')->cursorPaginate($limit, ['*'], 'cursor', is_string($cursor) ? Cursor::fromEncoded($cursor) : null);
+        $binding = ['entity_id' => $entityId, 'jurisdiction' => $jurisdiction, 'status' => $status, 'effective_on' => $effectiveOn, 'order' => 'jurisdiction,code,id'];
+        try {
+            [$decodedCursor, $boundary] = StableCursor::decode(is_string($cursor) ? $cursor : null, $binding);
+        } catch (InvalidArgumentException $exception) {
+            return $this->error('validation', $exception->getMessage(), 400);
+        }
+        $page = TaxCode::query()->where('entity_id', $entityId)->where('created_at', '<=', $boundary)->when($jurisdiction, fn ($q) => $q->where('jurisdiction', $jurisdiction))->when($status, fn ($q) => $q->where('status', $status))
+            ->orderBy('jurisdiction')->orderBy('code')->orderBy('id')->cursorPaginate($limit, ['*'], 'cursor', $decodedCursor);
         $rows = $page->getCollection()->map(function (TaxCode $code) use ($effectiveOn): array {
             $row = self::presentCode($code, false);
             if ($effectiveOn !== null) {
@@ -83,7 +102,7 @@ final readonly class TaxService
             return $row;
         })->all();
 
-        return new TaxActionResult(['tax_codes' => $rows, 'page' => ['limit' => $limit, 'next_cursor' => $page->nextCursor()?->encode()]]);
+        return new TaxActionResult(['tax_codes' => $rows, 'page' => ['limit' => $limit, 'next_cursor' => StableCursor::encode($page->nextCursor(), $boundary, $binding)]]);
     }
 
     public function show(User $actor, string $entityId, string $id): TaxActionResult

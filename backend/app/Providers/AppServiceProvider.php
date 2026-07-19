@@ -12,7 +12,11 @@ use App\Identity\Application\EntityReferenceQuery;
 use App\Identity\Infrastructure\EloquentApprovalPolicyQuery;
 use App\Identity\Infrastructure\EloquentEntityReferenceQuery;
 use App\Identity\Infrastructure\LaravelApprovalPayloadProtector;
+use App\Ledger\Application\AccountReferenceQuery;
+use App\Ledger\Application\ForeignCurrencyPositionQuery;
 use App\Ledger\Application\ReverseJournalApprovalHandler;
+use App\Ledger\Infrastructure\EloquentAccountReferenceQuery;
+use App\Ledger\Infrastructure\EloquentForeignCurrencyPositionQuery;
 use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Period\Application\PeriodQuery;
@@ -33,6 +37,8 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(ApprovalPayloadProtector::class, LaravelApprovalPayloadProtector::class);
         $this->app->bind(ApprovalPolicyQuery::class, EloquentApprovalPolicyQuery::class);
         $this->app->bind(RateReferenceService::class, EloquentRateReferenceService::class);
+        $this->app->bind(AccountReferenceQuery::class, EloquentAccountReferenceQuery::class);
+        $this->app->bind(ForeignCurrencyPositionQuery::class, EloquentForeignCurrencyPositionQuery::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
     }
 

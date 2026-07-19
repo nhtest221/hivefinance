@@ -134,6 +134,22 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER fx_rate_record_immutable
 BEFORE UPDATE OR DELETE ON fx_rate_records
 FOR EACH ROW EXECUTE FUNCTION protect_fx_rate_record();
+
+CREATE OR REPLACE FUNCTION protect_referenced_tax_code_version()
+RETURNS trigger AS $$
+BEGIN
+    IF OLD.referenced = true THEN
+        RAISE EXCEPTION 'Referenced tax code versions are immutable';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER referenced_tax_code_version_immutable
+BEFORE UPDATE OR DELETE ON tax_code_versions
+FOR EACH ROW EXECUTE FUNCTION protect_referenced_tax_code_version();
 SQL);
         }
     }
@@ -141,7 +157,7 @@ SQL);
     public function down(): void
     {
         if (DB::getDriverName() === 'pgsql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS fx_rate_record_immutable ON fx_rate_records; DROP FUNCTION IF EXISTS protect_fx_rate_record();');
+            DB::unprepared('DROP TRIGGER IF EXISTS referenced_tax_code_version_immutable ON tax_code_versions; DROP FUNCTION IF EXISTS protect_referenced_tax_code_version(); DROP TRIGGER IF EXISTS fx_rate_record_immutable ON fx_rate_records; DROP FUNCTION IF EXISTS protect_fx_rate_record();');
         }
         Schema::dropIfExists('fx_revaluation_runs');
         Schema::dropIfExists('fx_rate_records');

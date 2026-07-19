@@ -32,6 +32,8 @@ final readonly class JournalReversalExecutor
             $reversal->lines()->create(['entity_id' => $entityId, 'account_id' => $line->account_id, 'line_no' => $line->line_no, 'description' => 'Reversal: '.$line->description, 'debit' => $line->credit, 'credit' => $line->debit, 'currency' => $line->currency, 'fx_amount' => $line->fx_amount, 'fx_currency' => $line->fx_currency, 'rate_record_id' => $line->rate_record_id, 'fx_rate' => $line->fx_rate, 'fx_rate_effective_date' => $line->fx_rate_effective_date, 'sbu_tag' => $line->sbu_tag]);
         }
         $event = ['entryId' => $reversal->id, 'reversalOfEntryId' => $original->id, 'reversalEntryId' => $reversal->id];
+        $posted = ['entryId' => $reversal->id, 'entityId' => $entityId, 'periodRef' => $period->period_ref, 'entryDate' => (string) $data['entry_date'], 'lines' => $reversal->lines->map(fn ($line): array => ['accountId' => $line->account_id, 'debit' => ['amount' => $line->debit, 'currency' => $line->currency], 'credit' => ['amount' => $line->credit, 'currency' => $line->currency], 'sbu' => $line->sbu_tag])->all()];
+        $this->outbox->record('JournalPosted', 'JournalEntry', $reversal->id, $posted, $entityId, metadata: array_filter(['correlation_id' => $correlationId, 'causation_id' => $causationId]));
         $this->outbox->record('JournalReversed', 'JournalEntry', $reversal->id, $event, $entityId, metadata: array_filter(['correlation_id' => $correlationId, 'causation_id' => $causationId]));
         $this->audit->record('ledger', 'journal_reversed', 'journal_entry', $original->id, $actorId, $entityId, after: $event, correlationId: $correlationId);
 

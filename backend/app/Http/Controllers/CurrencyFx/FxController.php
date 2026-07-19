@@ -7,6 +7,7 @@ use App\Http\Requests\CurrencyFx\RunRevaluationRequest;
 use App\Http\Requests\CurrencyFx\StoreRateRecordRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 final class FxController
 {
@@ -19,6 +20,15 @@ final class FxController
 
     public function rates(Request $request, FxService $fx): JsonResponse
     {
+        $validator = Validator::make($request->query(), [
+            'base_currency' => ['nullable', 'string', 'size:3', 'uppercase'], 'quote_currency' => ['nullable', 'string', 'size:3', 'uppercase'],
+            'effective_from' => ['nullable', 'date_format:Y-m-d'], 'effective_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:effective_from'],
+            'source' => ['nullable', 'string', 'max:100'], 'referenced' => ['nullable', 'in:true,false,1,0'],
+            'limit' => ['nullable', 'integer', 'between:1,100'], 'cursor' => ['nullable', 'string'],
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['error_code' => 'validation', 'message' => 'The request is invalid.', 'details' => $validator->errors()->toArray()], 400);
+        }
         $limit = filter_var($request->query('limit', 50), FILTER_VALIDATE_INT);
         if ($limit === false || $limit < 1 || $limit > 100) {
             return response()->json(['error_code' => 'validation', 'message' => 'limit must be between 1 and 100.', 'details' => []], 400);
@@ -45,6 +55,10 @@ final class FxController
 
     public function revaluations(Request $request, FxService $fx): JsonResponse
     {
+        $validator = Validator::make($request->query(), ['period' => ['required', 'regex:/^\d{4}-\d{2}$/'], 'status' => ['nullable', 'in:pending_approval,posted,reversed']]);
+        if ($validator->fails()) {
+            return response()->json(['error_code' => 'validation', 'message' => 'The request is invalid.', 'details' => $validator->errors()->toArray()], 400);
+        }
         $period = $request->query('period');
         if (! is_string($period) || preg_match('/^\d{4}-\d{2}$/', $period) !== 1) {
             return response()->json(['error_code' => 'validation', 'message' => 'period is required.', 'details' => []], 400);

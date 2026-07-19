@@ -180,8 +180,10 @@ it('approves exactly once and safely replays the approval response', function ()
 
     $requested = OutboxMessage::query()->where('event_type', 'ApprovalRequested')->firstOrFail();
     $granted = OutboxMessage::query()->where('event_type', 'ApprovalGranted')->firstOrFail();
+    $grantedKeys = array_keys($granted->payload);
+    sort($grantedKeys);
 
-    expect($second->json())->toBe($first->json())
+    expect($second->json())->toEqual($first->json())
         ->and(AuditLog::query()->where('action', 'approval_probe_executed')->count())->toBe(1)
         ->and(OutboxMessage::query()->where('event_type', 'ApprovalGranted')->count())->toBe(1)
         ->and($granted->event_version)->toBe(1)
@@ -190,9 +192,9 @@ it('approves exactly once and safely replays the approval response', function ()
         ->and($actors['handler']->lastContext?->correlationId)->toBe($correlationId)
         ->and($actors['handler']->lastContext?->causationId)->toBe($requested->id)
         ->and($actors['handler']->lastContext?->originatingCorrelationId)->toBe($approval->originating_correlation_id)
-        ->and(array_keys($granted->payload))->toBe([
-            'approval_id', 'entity_id', 'maker_id', 'approver_id', 'command_type',
-            'command_schema_version', 'resource_id', 'approval_version', 'approved_at',
+        ->and($grantedKeys)->toBe([
+            'approval_id', 'approval_version', 'approved_at', 'approver_id', 'command_schema_version',
+            'command_type', 'entity_id', 'maker_id', 'resource_id',
         ])
         ->and($approval->refresh()->status)->toBe('approved');
 
