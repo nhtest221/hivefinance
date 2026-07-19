@@ -362,3 +362,17 @@ M1 retains the approved M0 shared-protocol behavior. A malformed caller-supplied
 This clarification corrects the M1 and durable approval lifecycle common-protocol text in `HiveFin_API_Contracts.md` without changing the approved M0 text or behavior. It introduces no new endpoint, state, event, business rule, or application implementation.
 
 **Traceability:** API Contracts §§7.1, 7.3, 7.4, 8.1.1, 8.3.7, 9.2, and 9.4.7; Governance Approval Records API-M1-001 and API-APPROVAL-001; Engineering Constitution P-01 through P-03 and API-01 through API-05.
+
+---
+
+## Governance Clarification Record — API-M1-003
+
+**Status:** APPROVED
+**Date:** 19 July 2026
+**Scope:** RevaluationRun query-status ownership
+
+The optional `status` filter on `GET /v1/fx/revaluation` accepts only `posted` or `reversed`. A pending approval request is owned by Identity and is not a RevaluationRun. A RevaluationRun is created only when the approved originating command executes successfully; before then, only the Identity ApprovalRequest exists. The originating `POST /v1/fx/revaluation` continues to return that approval resource through the standard `202 pending_approval` command outcome.
+
+This clarification removes `pending_approval` only from the RevaluationRun query status enumeration. It does not change the durable approval lifecycle, fabricate a pending RevaluationRun representation, add an endpoint or event, or alter any application implementation.
+
+**Traceability:** API Contracts §§8.5.3, 8.5.4, 9.3, and 9.4; ADR-005; ADR-007; Aggregate Design §10; Governance Approval Records API-M1-001 and API-APPROVAL-001.

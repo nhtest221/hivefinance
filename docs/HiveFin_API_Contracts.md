@@ -581,7 +581,7 @@ Returns `201` or `202`. Errors include `423 period_locked`, `missing_period_end_
 
 #### 8.5.4 `GET /v1/fx/revaluation`
 
-Authorization: `fx.revaluation.read`. Required filter is entity PeriodRef; optional status is `pending_approval`, `posted`, or `reversed`. No pagination because entity/period bounds the result.
+Authorization: `fx.revaluation.read`. Required filter is entity PeriodRef; optional status is `posted` or `reversed`. No pagination because entity/period bounds the result. A pending approval is an Identity-owned ApprovalRequest, not a RevaluationRun; the originating command's standard `202` response supplies the approval resource.
 
 ```json
 {"request_query":{"period":"2026-07","status":"posted"},"response":{"revaluation_runs":[{"id":"36be830b-b86e-408a-a2ff-b354a5f9196b","period_ref":"2026-07","status":"posted","figures":[{"account_id":"59b044b2-96e2-4cdd-a9b1-dca18be0a2d4","amount":{"amount":"25.0000","currency":"BDT"}}],"journal_entry_ids":["df654e88-f1cb-41f2-996c-1ee8826bf6aa"],"reversal":{"status":"scheduled","target_period_ref":"2026-08","reversal_run_id":null,"journal_entry_ids":[],"reversed_at":null},"version":1}]}}
