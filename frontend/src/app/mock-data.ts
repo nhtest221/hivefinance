@@ -27,18 +27,6 @@ export const trialBalanceRows = [
   ['4010', 'Client Service Revenue', 'BDT 0.0000', 'BDT 19,460,000.0000'],
 ]
 
-export const receivables = [
-  ['NH-3928', 'Northstar Digital', 'Sent', 'USD 10,000', 'BDT 1.17M', 'Due in 9 days'],
-  ['NH-3921', 'Orbit Labs', 'Partially Paid', 'BDT 840,000', 'BDT 310,000', 'Overdue 14 days'],
-  ['CN-0041', 'Aster Studio', 'Held', 'BDT 72,000', 'BDT 72,000', 'Credit'],
-]
-
-export const payables = [
-  ['BILL-1082', 'Cloud Platform Ltd.', 'Awaiting Payment', 'USD 1,240', 'BDT 145,080', 'Due tomorrow'],
-  ['EXP-2210', 'Office Operations', 'Recorded', 'BDT 18,250', 'BDT 0', 'Cash-settled'],
-  ['DN-0018', 'Media Supplier', 'Posted', 'BDT 44,000', 'BDT 44,000', 'Vendor credit'],
-]
-
 export const settlements = [
   ['RCPT-8831', 'Receipt', 'Northstar Digital', 'USD 9,000', 'USD 1,000 AIT', 'BDT 42,300 gain'],
   ['PMT-4419', 'Payment', 'Cloud Platform Ltd.', 'USD 1,240', '-', 'BDT 5,600 loss'],

@@ -14,11 +14,14 @@ use App\Identity\Infrastructure\EloquentEntityReferenceQuery;
 use App\Identity\Infrastructure\LaravelApprovalPayloadProtector;
 use App\Ledger\Application\AccountReferenceQuery;
 use App\Ledger\Application\ForeignCurrencyPositionQuery;
+use App\Ledger\Application\RecognitionPostingService;
 use App\Ledger\Application\ReverseJournalApprovalHandler;
 use App\Ledger\Infrastructure\EloquentAccountReferenceQuery;
 use App\Ledger\Infrastructure\EloquentForeignCurrencyPositionQuery;
+use App\Ledger\Infrastructure\EloquentRecognitionPostingService;
 use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
+use App\Payables\Application\BillApprovalCommandHandler;
 use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;
 use App\Tax\Application\TaxApprovalCommandHandler;
@@ -39,6 +42,7 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(RateReferenceService::class, EloquentRateReferenceService::class);
         $this->app->bind(AccountReferenceQuery::class, EloquentAccountReferenceQuery::class);
         $this->app->bind(ForeignCurrencyPositionQuery::class, EloquentForeignCurrencyPositionQuery::class);
+        $this->app->bind(RecognitionPostingService::class, EloquentRecognitionPostingService::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
     }
 
@@ -53,5 +57,6 @@ final class AppServiceProvider extends ServiceProvider
         foreach (['fx_rate_create', 'fx_revaluation_run'] as $type) {
             $registry->register(new FxApprovalCommandHandler($type));
         }
+        $registry->register($this->app->make(BillApprovalCommandHandler::class));
     }
 }

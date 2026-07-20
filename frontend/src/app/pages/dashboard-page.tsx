@@ -1,10 +1,14 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useEffect, useState } from 'react'
 
 import { Alert, Badge, Card, CardContent, CardHeader, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow } from '@/design-system'
 import { AppLayout } from '@/layouts/app-layout'
-import { cashTrend, kpis, receivables } from '../mock-data'
+import { documentsApi, type Invoice } from '@/features/documents/documents-api'
+import { cashTrend, kpis } from '../mock-data'
 
 export function DashboardPage() {
+  const [receivables, setReceivables] = useState<Invoice[]>([])
+  useEffect(() => { void documentsApi.invoices().then((result) => setReceivables(result.data.invoices)).catch(() => setReceivables([])) }, [])
   return (
     <AppLayout>
       <PageHeader title="Dashboard" description="Entity-scoped finance overview with cash, receivables, payables, and close readiness." />
@@ -70,13 +74,13 @@ export function DashboardPage() {
               </TableRow>
             </TableHeader>
             <tbody>
-              {receivables.map((row) => (
-                <TableRow key={row[0]}>
-                  <TableCell>{row[0]}</TableCell>
-                  <TableCell>{row[1]}</TableCell>
-                  <TableCell><Badge variant={row[2].includes('Paid') ? 'warning' : 'info'}>{row[2]}</Badge></TableCell>
-                  <TableCell className="text-right tabular-nums">{row[4]}</TableCell>
-                  <TableCell>{row[5]}</TableCell>
+              {receivables.map((invoice) => (
+                <TableRow key={invoice.id}>
+                  <TableCell>{invoice.document_number ?? 'Draft'}</TableCell>
+                  <TableCell>{invoice.customer_id}</TableCell>
+                  <TableCell><Badge variant={invoice.status === 'sent' ? 'info' : 'warning'}>{invoice.status}</Badge></TableCell>
+                  <TableCell className="text-right tabular-nums">{invoice.open_balance.currency} {invoice.open_balance.amount}</TableCell>
+                  <TableCell>{invoice.due_date}</TableCell>
                 </TableRow>
               ))}
             </tbody>

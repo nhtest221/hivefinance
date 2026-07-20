@@ -6,8 +6,6 @@ import { LoginPage } from './pages/login-page'
 import {
   AuditLogPage,
   BankAccountsPage,
-  PayablesPage,
-  ReceivablesPage,
   ReportsPage,
   SettingsPage,
   SettlementPage,
@@ -17,6 +15,8 @@ import { ManualJournalPage } from '@/features/ledger/manual-journal-page'
 import { ChartOfAccountsPage } from '@/features/ledger/chart-of-accounts-page'
 import { TaxPage } from '@/features/tax/tax-page'
 import { FxPage } from '@/features/fx/fx-page'
+import { ReceivablesPage } from '@/features/documents/receivables-page'
+import { PayablesPage } from '@/features/documents/payables-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },

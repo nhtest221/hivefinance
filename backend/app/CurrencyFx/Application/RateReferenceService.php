@@ -11,4 +11,7 @@ interface RateReferenceService
 
     /** @param array<string, mixed> $reference */
     public function matchesFunctionalAmount(string $entityId, array $reference, string $foreignAmount, string $functionalAmount): bool;
+
+    /** @return array<string,mixed>|null */
+    public function exactById(string $entityId, string $rateRecordId, string $baseCurrency, string $quoteCurrency, string $effectiveDate): ?array;
 }
