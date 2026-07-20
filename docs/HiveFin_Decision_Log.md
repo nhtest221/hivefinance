@@ -376,3 +376,18 @@ The optional `status` filter on `GET /v1/fx/revaluation` accepts only `posted` o
 This clarification removes `pending_approval` only from the RevaluationRun query status enumeration. It does not change the durable approval lifecycle, fabricate a pending RevaluationRun representation, add an endpoint or event, or alter any application implementation.
 
 **Traceability:** API Contracts §§8.5.3, 8.5.4, 9.3, and 9.4; ADR-005; ADR-007; Aggregate Design §10; Governance Approval Records API-M1-001 and API-APPROVAL-001.
+
+---
+
+## Governance Approval Record — API-M2-001
+
+**Status:** APPROVED
+**Date:** 20 July 2026
+**Approved artifact:** `PROPOSED_API_CONTRACT_AMENDMENT_M2_DOCUMENTS.md`
+**Approved SHA-256:** `801e5043a22f8d3556a9297b0cafbf86ea7ab92cbfe6eabb84bd595389bbde3c`
+
+The approved M2 Documents API contract is incorporated into `HiveFin_API_Contracts.md` §10. It freezes the 24 public Customer, Invoice, Vendor, Bill, and Expense endpoints while preserving the approved M0/M1 protocol. It authorizes draft editing and public soft deactivation, defers attachment transport, and freezes entity/jurisdiction/master-type tax-identifier uniqueness using Unicode NFKC, outer-whitespace trimming, and uppercase-letter normalization without transliteration, punctuation stripping, or fuzzy matching.
+
+The approval introduces no Settlement, Credit/Debit Note, Period Close, ageing, reconciliation, migration, or later-reporting behavior. Ledger posting, Tax/FX determination, and Numbering remain internal contracts owned by their frozen contexts.
+
+**Traceability:** SRS v3.0 §§4.1–4.4 and 5.3–5.5, 5.8–5.9; ADR-001, ADR-002, ADR-005, ADR-006, ADR-007, and ADR-009; Aggregate Design §§0, 3, 4, 7, and 8; Repository Contracts; Database Design; Domain Events; Engineering Constitution API-01 through API-07.
