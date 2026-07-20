@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!backend/.env.uat.example
 
 backend/vendor/
 backend/.phpunit.cache/
