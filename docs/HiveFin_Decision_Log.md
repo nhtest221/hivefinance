@@ -391,3 +391,20 @@ The approved M2 Documents API contract is incorporated into `HiveFin_API_Contrac
 The approval introduces no Settlement, Credit/Debit Note, Period Close, ageing, reconciliation, migration, or later-reporting behavior. Ledger posting, Tax/FX determination, and Numbering remain internal contracts owned by their frozen contexts.
 
 **Traceability:** SRS v3.0 §§4.1–4.4 and 5.3–5.5, 5.8–5.9; ADR-001, ADR-002, ADR-005, ADR-006, ADR-007, and ADR-009; Aggregate Design §§0, 3, 4, 7, and 8; Repository Contracts; Database Design; Domain Events; Engineering Constitution API-01 through API-07.
+
+---
+
+## Governance Approval Record — API-M3-001
+
+**Status:** APPROVED
+**Date:** 20 July 2026
+**Approved artifact:** `PROPOSED_API_CONTRACT_AMENDMENT_M3_SETTLEMENT.md`
+**Approved SHA-256:** `84f29614cf3b830c2c24867e83c3731667c37e622ef30b4aa244b407b23cba6f`
+
+The approved M3 Settlement API contract is incorporated into `HiveFin_API_Contracts.md` §11. It freezes seven public Receipt, Payment, PartyCredit, Allocation query, and linked-reversal endpoints while preserving all approved M0/M1/M2 shared-protocol behavior.
+
+All four settlement amounts are non-negative Money values. The approved positive-value invariants are `gross_amount = bank_amount + withholding_amount` and `gross_amount = sum(document_allocations) + unapplied_amount`. Withholding and unapplied party credit are never subtracted. Settlement remains atomic across Allocation, versioned document application, PartyCredit, Numbering, Ledger posting, audit, idempotency, and outbox effects.
+
+The amendment introduces no new event schema. `ReceiptAllocated`, `PaymentAllocated`, `RealisedFXRecognised`, `WithholdingCaptured`, `CreditHeld`, `CreditApplied`, `CreditRefunded`, and `AllocationReversed` remain governed by the existing frozen Domain Events catalogue.
+
+**Traceability:** SRS v3.0 §§4.1–4.4, 5.3–5.6, 6.3, and 6.4; ADR-001, ADR-002, ADR-004, ADR-005, ADR-006, ADR-007, and ADR-009; Context Interaction Matrix §4; Context Map Settlement Partnership; Aggregate Design §§0.3, 2a, and 2b; Repository Contracts Allocation and document partnership contracts; Database Design settlement schema; Domain Events Settlement & Cash Application catalogue; API Contracts §§1–3 and 11; Implementation Roadmap M3; Engineering Constitution ARCH-02 through ARCH-05, DOM-02 through DOM-10, API-01 through API-05, DB-02 through DB-06, and ERR-01 through ERR-05.
