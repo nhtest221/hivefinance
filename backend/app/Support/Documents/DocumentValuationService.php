@@ -65,6 +65,13 @@ final readonly class DocumentValuationService
         return $this->calculator->calculate($amount, (string) $reference['rate'], (string) $reference['rate'], (int) $scale, $mode)['document_functional'];
     }
 
+    public function requiresRate(string $entityId, string $documentCurrency): bool
+    {
+        $functionalCurrency = $this->entities->functionalCurrency($entityId);
+
+        return $functionalCurrency !== null && $documentCurrency !== $functionalCurrency;
+    }
+
     /** @param list<array<string,mixed>> $lines */
     public function markTaxSnapshotsReferenced(string $entityId, array $lines): void
     {

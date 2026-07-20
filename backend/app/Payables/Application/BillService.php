@@ -257,7 +257,9 @@ final readonly class BillService
             return $this->commands->error('validation', 'due_date must not precede bill_date.', 400);
         }$value = $this->valuation->value($entityId, $vendor->jurisdiction, $data['bill_date'], $data['currency'], $data['lines'], $data['rate_record_id'] ?? null);
         if ($value === null) {
-            return $this->commands->error('missing_tax_configuration', 'Required immutable tax or FX configuration could not be resolved.', 422);
+            $code = $this->valuation->requiresRate($entityId, $data['currency']) ? 'missing_rate_reference' : 'missing_tax_configuration';
+
+            return $this->commands->error($code, 'Required immutable tax or FX configuration could not be resolved.', 422);
         }
 
         return ['due_date' => $due, 'value' => $value];

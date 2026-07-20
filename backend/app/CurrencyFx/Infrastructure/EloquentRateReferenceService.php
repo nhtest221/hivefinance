@@ -19,7 +19,7 @@ final readonly class EloquentRateReferenceService implements RateReferenceServic
 
     public function markReferenced(string $entityId, string $rateRecordId): void
     {
-        RateRecord::query()->where('entity_id', $entityId)->whereKey($rateRecordId)->update(['referenced' => true]);
+        RateRecord::query()->where('entity_id', $entityId)->whereKey($rateRecordId)->where('referenced', false)->update(['referenced' => true]);
     }
 
     public function matchesFunctionalAmount(string $entityId, array $reference, string $foreignAmount, string $functionalAmount): bool

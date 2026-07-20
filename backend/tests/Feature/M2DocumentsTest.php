@@ -144,6 +144,9 @@ it('fails numbering, posting, correlation and unknown query input safely without
     expect(Invoice::query()->findOrFail($draft['id'])->status)->toBe('draft')->and(JournalEntry::query()->count())->toBe(0);
     $this->getJson('/v1/invoices?unexpected=true', ['X-Entity-Id' => $entity->id])->assertBadRequest()->assertJsonPath('error_code', 'validation');
     $this->getJson('/v1/invoices', ['X-Entity-Id' => $entity->id, 'X-Correlation-Id' => 'not-a-uuid'])->assertBadRequest()->assertJsonPath('error_code', 'validation');
+
+    $foreignCustomer = createCustomer($this, $maker, $entity, ['name' => 'Foreign Customer', 'type' => 'foreign', 'default_currency' => 'USD']);
+    $this->postJson('/v1/invoices', ['customer_id' => $foreignCustomer['id'], 'invoice_date' => '2026-07-15', 'currency' => 'USD', 'lines' => [['description' => 'Foreign service', 'quantity' => '1.0000', 'unit_price' => ['amount' => '10.0000', 'currency' => 'USD'], 'tax_code_id' => null]]], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertUnprocessable()->assertJsonPath('error_code', 'missing_rate_reference');
 });
 
 it('enforces recognized document immutability in PostgreSQL', function (): void {

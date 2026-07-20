@@ -243,7 +243,7 @@ final readonly class InvoiceService
             return $this->commands->error('validation', 'due_date must not precede invoice_date.', 400);
         }$value = $this->valuation->value($entityId, $customer->jurisdiction, $data['invoice_date'], $data['currency'], $data['lines'], $data['rate_record_id'] ?? null);
         if ($value === null) {
-            $code = ($data['currency'] !== $customer->default_currency) ? 'missing_rate_reference' : 'missing_tax_configuration';
+            $code = $this->valuation->requiresRate($entityId, $data['currency']) ? 'missing_rate_reference' : 'missing_tax_configuration';
 
             return $this->commands->error($code, 'Required immutable valuation configuration could not be resolved.', 422);
         }

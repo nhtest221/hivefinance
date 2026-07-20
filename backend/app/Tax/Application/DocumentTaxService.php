@@ -57,7 +57,7 @@ final readonly class DocumentTaxService
     public function markReferenced(string $entityId, ?array $snapshot): void
     {
         if (is_string($snapshot['tax_code_version_id'] ?? null)) {
-            TaxCodeVersion::query()->where('entity_id', $entityId)->whereKey($snapshot['tax_code_version_id'])->update(['referenced' => true]);
+            TaxCodeVersion::query()->where('entity_id', $entityId)->whereKey($snapshot['tax_code_version_id'])->where('referenced', false)->update(['referenced' => true]);
         }
     }
 

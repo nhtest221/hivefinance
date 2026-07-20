@@ -65,7 +65,9 @@ final readonly class ExpenseService
         $line = [['description' => $data['description'], 'quantity' => '1.0000', 'unit_price' => $data['amount'], 'tax_code_id' => $data['tax_code_id'] ?? null]];
         $value = $this->valuation->value($entityId, $vendor?->jurisdiction, $data['expense_date'], $data['currency'], $line, null);
         if ($value === null) {
-            return $this->commands->error('missing_tax_configuration', 'Required immutable tax or FX configuration could not be resolved.', 422);
+            $code = $this->valuation->requiresRate($entityId, $data['currency']) ? 'missing_rate_reference' : 'missing_tax_configuration';
+
+            return $this->commands->error($code, 'Required immutable tax or FX configuration could not be resolved.', 422);
         }
 
         return DB::transaction(function () use ($actor, $entityId, $data, $value, $creditAccount, $key, $op, $hash): DocumentActionResult {
