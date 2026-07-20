@@ -1,40 +1,6 @@
 import { Badge, Button, Card, CardContent, CardHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
-import { accountingPeriods, auditRows, banks, payables, receivables, reports, settlements, trialBalanceRows } from '../mock-data'
+import { accountingPeriods, auditRows, banks, reports, settlements, trialBalanceRows } from '../mock-data'
 import { ModulePage } from './module-page'
-
-export function ReceivablesPage() {
-  return (
-    <ModulePage
-      title="Receivables"
-      description="Customer invoices, credit notes, open balances, and ageing."
-      badge="Documents"
-      columns={['Document', 'Customer', 'Status', 'Amount', 'Open balance', 'Age']}
-      rows={receivables}
-      summary={[
-        { label: 'Open AR', value: 'BDT 9.84M', meta: '12 overdue documents' },
-        { label: 'Held credits', value: 'BDT 214K', meta: 'Customer credit balances' },
-        { label: 'Foreign AR', value: 'USD 42.8K', meta: 'Rate referenced' },
-      ]}
-    />
-  )
-}
-
-export function PayablesPage() {
-  return (
-    <ModulePage
-      title="Payables"
-      description="Supplier bills, debit notes, expenses, and AP ageing."
-      badge="Documents"
-      columns={['Document', 'Vendor', 'Status', 'Amount', 'Open balance', 'Due']}
-      rows={payables}
-      summary={[
-        { label: 'Open AP', value: 'BDT 3.18M', meta: '5 due this week' },
-        { label: 'Vendor credits', value: 'BDT 88K', meta: 'Unapplied' },
-        { label: 'AIT/VDS tracked', value: 'BDT 314K', meta: 'Current period' },
-      ]}
-    />
-  )
-}
 
 export function SettlementPage() {
   return (
