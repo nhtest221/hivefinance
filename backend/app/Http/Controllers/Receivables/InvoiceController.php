@@ -33,7 +33,7 @@ final class InvoiceController
             return $this->response($e);
         }
 
-return $this->response($s->show($r->user(), (string) $r->header('X-Entity-Id'), $id));
+        return $this->response($s->show($r->user(), (string) $r->header('X-Entity-Id'), $id));
     }
 
     public function index(Request $r, InvoiceService $s): JsonResponse
@@ -59,6 +59,6 @@ return $this->response($s->show($r->user(), (string) $r->header('X-Entity-Id'), 
 
     private function response(DocumentActionResult $r): JsonResponse
     {
-        return response()->json($r->payload,$r->status,$r->headers);
+        return response()->json($r->payload, $r->status, $r->headers);
     }
 }

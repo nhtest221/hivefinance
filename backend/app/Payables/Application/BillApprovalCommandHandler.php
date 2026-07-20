@@ -31,6 +31,6 @@ final readonly class BillApprovalCommandHandler implements ApprovalCommandHandle
             throw new RuntimeException((string) ($result->payload['error_code'] ?? 'bill_approval_failed'));
         }
 
-return new ApprovalCommandResult(201, $result->payload);
+        return new ApprovalCommandResult(201, $result->payload);
     }
 }

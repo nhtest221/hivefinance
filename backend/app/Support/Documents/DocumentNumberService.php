@@ -25,7 +25,7 @@ final readonly class DocumentNumberService
             return null;
         }
 
-return ['number' => $number, 'prefix' => $prefix, 'scope' => $scope, 'value' => $sequence->currentValue];
+        return ['number' => $number, 'prefix' => $prefix, 'scope' => $scope, 'value' => $sequence->currentValue];
     }
 
     /** @param array{prefix:string,scope:SequenceScope,value:int} $draw */

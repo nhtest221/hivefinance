@@ -22,7 +22,7 @@ final class ExpenseController
             return $this->response($e);
         }
 
-return $this->response($s->show($r->user(), (string) $r->header('X-Entity-Id'), $id));
+        return $this->response($s->show($r->user(), (string) $r->header('X-Entity-Id'), $id));
     }
 
     public function index(Request $r, ExpenseService $s): JsonResponse
