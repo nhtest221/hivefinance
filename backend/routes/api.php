@@ -16,6 +16,7 @@ use App\Http\Controllers\Period\PeriodController;
 use App\Http\Controllers\Receivables\CustomerController;
 use App\Http\Controllers\Receivables\InvoiceController;
 use App\Http\Controllers\Reports\LedgerReportController;
+use App\Http\Controllers\Settlement\SettlementController;
 use App\Http\Controllers\Tax\TaxController;
 use Illuminate\Support\Facades\Route;
 
@@ -92,4 +93,12 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
     Route::get('/expenses/{id}', [ExpenseController::class, 'show'])->name('expenses.show');
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');
+
+    Route::post('/receipts', [SettlementController::class, 'receipt'])->name('settlement.receipts.store');
+    Route::post('/payments', [SettlementController::class, 'payment'])->name('settlement.payments.store');
+    Route::post('/credits/{party}/apply', [SettlementController::class, 'apply'])->name('settlement.credits.apply');
+    Route::post('/credits/{party}/refund', [SettlementController::class, 'refund'])->name('settlement.credits.refund');
+    Route::post('/allocations/{id}/reverse', [SettlementController::class, 'reverse'])->name('settlement.allocations.reverse');
+    Route::get('/allocations', [SettlementController::class, 'allocations'])->name('settlement.allocations.index');
+    Route::get('/credits/{party}', [SettlementController::class, 'credits'])->name('settlement.credits.show');
 });

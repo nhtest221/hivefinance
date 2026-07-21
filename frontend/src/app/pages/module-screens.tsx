@@ -1,23 +1,6 @@
 import { Badge, Button, Card, CardContent, CardHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
-import { accountingPeriods, auditRows, banks, reports, settlements, trialBalanceRows } from '../mock-data'
+import { accountingPeriods, auditRows, banks, reports, trialBalanceRows } from '../mock-data'
 import { ModulePage } from './module-page'
-
-export function SettlementPage() {
-  return (
-    <ModulePage
-      title="Settlement"
-      description="Receipt and payment allocation review, including withholding and realised FX placeholders."
-      badge="Cash application"
-      columns={['Allocation', 'Direction', 'Party', 'Amount', 'Withholding', 'Realised FX']}
-      rows={settlements}
-      summary={[
-        { label: 'Receipts this month', value: 'BDT 8.2M', meta: 'Cash layer source' },
-        { label: 'Payments this month', value: 'BDT 4.6M', meta: 'Cash layer source' },
-        { label: 'Unapplied credits', value: 'BDT 402K', meta: 'Customer and vendor' },
-      ]}
-    />
-  )
-}
 
 export function BankAccountsPage() {
   return (

@@ -8,7 +8,6 @@ import {
   BankAccountsPage,
   ReportsPage,
   SettingsPage,
-  SettlementPage,
 } from './pages/module-screens'
 import { ResetPasswordPage } from './pages/reset-password-page'
 import { ManualJournalPage } from '@/features/ledger/manual-journal-page'
@@ -17,6 +16,7 @@ import { TaxPage } from '@/features/tax/tax-page'
 import { FxPage } from '@/features/fx/fx-page'
 import { ReceivablesPage } from '@/features/documents/receivables-page'
 import { PayablesPage } from '@/features/documents/payables-page'
+import { SettlementPage } from '@/features/settlement/settlement-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
