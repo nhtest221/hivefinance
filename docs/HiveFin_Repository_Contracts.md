@@ -55,11 +55,38 @@ Save(invoice)                     // version-checked; Issued immutable except op
 GetOpenReceivable(documentId): { openBalance, version }   // Partnership query
 FindByCustomer(customerId, status): Invoice[]
 FindOverdue(asOf): Invoice[]
+
+CreditNoteRepository
+  GetById(noteId): CreditNote | null
+  AddDraft(note): void
+  SaveDraft(note, expectedVersion): void
+  CommitPost(note, expectedVersion): void
+  AppendDisposition(note, disposition, expectedVersion): void
+  CommitReversal(note, reversal, expectedVersion): void
+  FindReversal(noteId): NoteReversal | null
+
+CreditNoteQuery
+  GetDetail(entityId, noteId): CreditNoteDetail | null
+  Search(entityId, filters, signedCursor, limit): CreditNotePage
 ```
-1. **Interface:** above. 2. **Persistence:** document + lines; `openBalance`/status mutate **only** through `ApplySettlement`/void; the rest immutable once Issued. 3. **Queries:** open receivable (hot path), by customer, overdue, by period. 4. **Transaction boundary:** recognition UoW (issue) and settlement UoW (ApplySettlement). 5. **Optimistic concurrency:** **document version** — the guard `ApplySettlement(amount, expectedVersion)` checks (no-over-allocation). 6. **Locking:** none. 7. **Loading:** document + lines. 8. **Cross-context:** exposes `GetOpenReceivable`/`ApplySettlement` to Settlement; consumes Tax/FX via services. 9. **UoW:** app service. 10. **Performance:** `GetOpenReceivable` indexed by documentId (single-row read); ageing served by projection.
+1. **Interface:** above. 2. **Persistence:** Invoice document + lines; `openBalance`/status mutate **only** through `ApplySettlement`/void; the rest immutable once Issued. CreditNote Drafts are editable; Posted note facts, TaxSnapshots, RateRecord references, dispositions, applications, and reversals are append-only except guarded current-state projections. 3. **Queries:** open receivable (hot path), by customer, overdue, by period, and signed-cursor note detail/search. 4. **Transaction boundary:** recognition, note posting/disposition/reversal, and settlement UoWs. 5. **Optimistic concurrency:** document/note version plus each relevant target-document and CreditTranche `expected_version`; any mismatch fails the UoW. 6. **Locking:** none. 7. **Loading:** whole aggregate; named tranche refs only for a held-source operation. 8. **Cross-context:** exposes `GetOpenReceivable`/`ApplySettlement` to Settlement; invokes Ledger, Tax, FX, Period, Numbering, and Settlement through owning services only. The repository never selects a document or tranche and implements no FIFO/LIFO/weighted-average/pro-rata/automatic policy. 9. **UoW:** application service. 10. **Amounts:** aggregate/read DTOs expose exactly `posted_amount`, `applied_amount`, `refunded_amount`, `held_remaining_amount`, and `undisposed_amount`; no current-state alias `held_amount` or `remaining_amount`. Historical holds may use operation-specific `transferred_amount`.
 
 ### BillRepository / DebitNoteRepository / ExpenseRepository *(Payables)*
-Mirror of Receivables. **Adds:** SBU split (Σ=1.0000) and AIT/VDS persisted with the bill; `GetOpenPayable(documentId)` for the Partnership; expense `settlementType` drives cash vs accrued. Same concurrency/UoW/loading/cross-context/performance profile as Receivables.
+Mirror of Receivables, including explicit `DebitNoteRepository` and `DebitNoteQuery` methods equivalent to the CreditNote contracts above and the exact same five current-state amount names. **Adds:** SBU split (Σ=1.0000) and AIT/VDS persisted with the bill; `GetOpenPayable(documentId)` for the Partnership; expense `settlementType` drives cash vs accrued. Same concurrency, no-selection, UoW, loading, cross-context, immutability, and performance rules as Receivables.
+
+### AccountingPeriodRepository and CloseGateProvider *(Period)*
+```
+AccountingPeriodRepository
+  GetById(periodId): AccountingPeriod | null
+  Search(entityId, filters, signedCursor, limit): AccountingPeriodPage
+  SaveTransition(period, transition, expectedVersion): void
+  AppendCloseEvidence(periodId, closeAttemptId, evidenceSet): void
+  AppendLateAdjustmentLink(link): void
+
+CloseGateProvider v1
+  Evaluate(contractVersion, entityId, periodId, periodRef, gateType, correlationId, evaluatedAt): CloseGateResult
+```
+The repository loads only Period-owned state, transition history, copied accepted evidence, and late-adjustment links. `CloseGateProvider` is an internal versioned consumer contract implemented by Reporting/Reconciliation adapters; it returns immutable evidence metadata but never an external aggregate or ORM model. Missing, failed, stale, malformed, or changed evidence is `unmet`. Successful Hard Close conditionally saves the transition and exact accepted evidence set in one UoW. An unmet gate saves no business state and produces no `CloseGateFailed` outbox event.
 
 ---
 
@@ -76,7 +103,7 @@ Mirror of Receivables. **Adds:** SBU split (Σ=1.0000) and AIT/VDS persisted wit
 | **TaxPackRepository** (Tax) | GetByJurisdiction; Save | version | none | whole | Tax only | small |
 | **RateRecordRepository** (FX) | GetRate(pair, date); Add | append-only (immutable once referenced) | none | single | referenced via ExchangeRateReference | index (pair, effectiveDate) |
 | **RevaluationRunRepository** (FX) | GetByPeriod; Save | version | none | whole | FX only | small |
-| **AccountingPeriodRepository** (Period) | GetByRef; IsDatePostable; Save | version | none | period + transition log | OHS query to all | index (entityId, periodRef) |
+| **AccountingPeriodRepository** (Period) | GetById; GetByRef; Search; IsDatePostable; SaveTransition; AppendCloseEvidence; AppendLateAdjustmentLink | version | none | period + transitions + accepted evidence + late links | OHS/query and CloseGateProvider adapters only | index (entityId, periodRef) |
 | **FiscalCalendarRepository** (Period) | GetByEntity; Save | version | none | whole | Period only | small |
 | **EntityRepository** (Identity) | GetById; Save | version | none | whole | isolation root | small |
 | **UserRepository** (Identity) | GetById; FindByEmail; Save | version | none | user + grants/roles refs | authz via service | index (email), (entityId) |
@@ -118,8 +145,8 @@ No writes; no domain invariants; cash view via the single documented algorithm (
 | Bill approval (recognition) | Bill + JournalEntry | Payables app service |
 | Customer receipt / vendor payment (settlement) | Allocation + document ApplySettlement + JournalEntry + created CreditTranche(s), when unapplied | Settlement app service |
 | Party-credit application/refund/reversal | Allocation + exact CreditTranche consumption/restoration facts + projection + document ApplySettlement or bank movement + JournalEntry + FX result, when foreign | Settlement app service |
-| Credit note | CreditNote + JournalEntry | Receivables app service |
-| Period close | AccountingPeriod (+ emitted locks) | Period app service |
+| Credit/debit note post/disposition/reversal | Note + exact document/CreditTranche effects + JournalEntry/FX result when applicable | Receivables/Payables app service through owning contracts |
+| Period close | AccountingPeriod + immutable accepted close evidence + atomic VAT state + audit/outbox | Period app service |
 | FX revaluation | RevaluationRun + JournalEntry(s) | FX/Period app service |
 | Reconciliation entry | BankReconciliation + (requested) JournalEntry | Reconciliation app service |
 | Migration final post | StagingBatch + target import services (idempotent, chunkable) | Migration app service |

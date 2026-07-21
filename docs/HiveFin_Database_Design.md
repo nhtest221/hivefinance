@@ -43,7 +43,11 @@
 ### receivables
 - **invoice** — `document_number`, `customer_id(uuid)`, `invoice_date`, `due_date`, `currency`, `rate_record_id(uuid)`, `total`, `open_balance`, `status`, `payment_instructions_ref`. Mutable: open_balance, status, version.
 - **invoice_line** — `invoice_id(fk)`, `description`, `qty`, `unit_price`, `tax_snapshot(json)`, `amount`.
-- **credit_note** — `document_number`, `source_invoice_id(uuid)`, `reason_code`, `disposition`, `tax_snapshot(json)`, `total`, `period_ref`.
+- **credit_note** — `document_number`, `provisional_token`, `source_invoice_id(uuid)`, `reason_code`, `narrative`, `note_date`, `currency`, immutable `source_rate_record_id(uuid,null)`, `proposed_total`, immutable `posted_amount`, `applied_amount`, `refunded_amount`, `held_remaining_amount`, `undisposed_amount`, `state`, `period_ref`, `version`, posting/reversal refs. All five current-state amounts are non-negative; for Posted non-reversed notes, `posted_amount = applied_amount + refunded_amount + held_remaining_amount + undisposed_amount`. No cumulative historical hold value is stored as the current held balance.
+- **credit_note_line** — `credit_note_id(fk)`, `source_line_id(uuid)`, description, exact net/tax/total values, immutable `tax_snapshot(json)`, line order. Unique(note, source line); immutable after post.
+- **credit_note_disposition** — note FK, operation(apply/hold/refund/restoration), exact transaction/functional values, date, actor, correlation/causation, Settlement/allocation/CreditTranche refs, `transferred_amount` for historical hold facts. Append-only; no generic current-state `held_amount`.
+- **credit_note_application** — note/disposition IDs, target invoice UUID, transaction/functional applied values, source/target versions, exact source/target RateRecord refs, reversal ref. Append-only; unique effective application identity.
+- **credit_note_reversal** — original note UUID, reversal date/reason/narrative, reversal journal IDs, impact-graph hash. Append-only; unique original note.
 - **customer** — `name`, `type`, `tax_id`, `default_currency`, `payment_terms`, `status`.
 - Indexes: invoice(document_id) [PK], invoice(customer_id, status), invoice(due_date) partial where status≠Paid, unique(entity_id, document_number).
 
@@ -51,7 +55,8 @@
 - **bill** — `document_number`, `vendor_id(uuid)`, `bill_date`, `due_date`, `currency`, `rate_record_id`, `total`, `open_balance`, `status`, `ait`, `vds`.
 - **bill_line** — `bill_id(fk)`, `description`, `qty`, `unit_price`, `tax_snapshot(json)`, `expense_account_id(uuid)`, `amount`.
 - **bill_sbu_allocation** — `bill_id(fk)`, `sbu_code`, `weight`. Constraint: Σweight = 1.0000 (checked in aggregate; assertable).
-- **debit_note**, **expense** (`settlement_type`), **vendor**.
+- **debit_note**, **debit_note_line**, **debit_note_disposition**, **debit_note_application**, **debit_note_reversal** — vendor/bill equivalents of the Receivables note structures, with a separate numbering scope and the same five exact current-state amounts, constraints, immutable snapshots/rate references, append-only histories, and linked reversal uniqueness.
+- **expense** (`settlement_type`), **vendor**.
 - Indexes: bill(vendor_id, status), bill(due_date) partial, unique(entity_id, document_number) per series.
 
 ### settlement
@@ -75,8 +80,10 @@
 - Index: rate_record(currency_pair, effective_date).
 
 ### period
-- **accounting_period** — `period_ref`, `state`, `vat_lock_status`. Unique(entity_id, period_ref).
-- **period_transition** — `period_id(fk)`, `from_state`, `to_state`, `reason_code`, `approver_id(uuid,null)`, `at`.
+- **accounting_period** — `period_ref`, `state(Open|SoftClosed|HardClosed|Reopened)`, `vat_lock_status`, `reclose_required`, `version`. Unique(entity_id, period_ref).
+- **period_transition** — `period_id(fk)`, `from_state`, `to_state`, VAT before/after, reason/narrative, maker/approver/approval UUIDs, correlation/causation, `at`. Append-only.
+- **close_gate_evidence** — period FK, close-attempt UUID, gate type/status, source context/reference, produced/reviewed metadata, evidence version/hash, accepted-set hash, accepted timestamp. Unique(period, close attempt, gate); append-only.
+- **late_adjustment_link** — original period/source UUIDs, posting-period UUID, correction/note UUID, journal UUID, reason, TaxSnapshot/RateRecord hashes, occurred timestamp. Append-only.
 - **fiscal_calendar** — `entity_id`, `year_start`, `period_defs(json)`.
 
 ### identity
@@ -112,6 +119,8 @@
 - **No-over-allocation:** `ApplySettlement` updates `invoice.open_balance` with `WHERE id=? AND version=?`; the settlement UoW retries on conflict.
 - **Sequence:** the **only** serialized point — `DrawNext` performs an atomic increment (row lock or atomic `UPDATE ... RETURNING`), guaranteeing gapless + unique under concurrency.
 - **Posted immutability:** enforced by column-level update restrictions/triggers on posted rows (only whitelisted fields mutable).
+- **Note disposition:** conditional note-version updates and named CreditTranche versions protect concurrent disposition. DB checks prohibit negative categories and enforce `posted_amount = applied_amount + refunded_amount + held_remaining_amount + undisposed_amount`; disposition/restoration rows append and never rewrite history.
+- **Period transitions:** the version guard prevents concurrent state changes. Hard Close stores an immutable accepted evidence set and atomically changes the Period to `HardClosed` and VAT to locked. An absent or unmet M5/M6 provider stores no business row and causes `422 close_gate_unmet`; there is no bypass or standalone VAT-lock write.
 
 ---
 

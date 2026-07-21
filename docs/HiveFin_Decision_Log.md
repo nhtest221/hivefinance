@@ -427,3 +427,28 @@ Consumption and restoration facts are append-only. A reversal restores the exact
 This record supersedes only the aggregate PartyCredit concurrency/source-selection assumptions in API-M3-001. It adds no new public endpoint, event name, withholding rule, rate source, rounding policy, approval threshold, allocation rule, or M4/M5 scope.
 
 **Traceability:** approved proposal §§1–7; API Contracts §11.2.6 and §§11.4–11.6; Aggregate Design §§2a–2b; Database Design settlement schema; Repository Contracts AllocationRepository, CreditTrancheRepository, and Settlement UoW; Domain Events Settlement party-credit v2 schemas; ADR-002, ADR-007, and ADR-009; Engineering Constitution ARCH-02 through ARCH-05, DOM-02 through DOM-10, DB-02 through DB-06, and ERR-01 through ERR-05.
+
+---
+
+## Governance Approval Record — M4-GOV-001
+
+**Status:** APPROVED
+**Date:** 21 July 2026
+**Approved artifact:** `PROPOSED_GOVERNANCE_AMENDMENT_M4_NOTES_AND_PERIOD_CLOSE.md`
+**Approved SHA-256:** `615a01a4a9458e45e08e259300cf9457503b72f6c8d5a40995307817b460dd60`
+
+The canonical milestone name is **M4 — Corrections, Notes and Period Close Foundations**. M4 remains one milestone with conceptual slices **M4A — Credit/Debit Notes and Corrections** and **M4B — Period Lifecycle and Close-Gate Foundations**. The approval freezes 25 public endpoints: nine Credit Note, nine Debit Note, two posted-document void/correction, and five Period endpoints.
+
+Draft notes are editable; Posted notes are immutable. Draft invoices and bills retain the frozen edit-or-void behavior. Sent/issued invoices and approved bills are not destructively edited: correction uses the linked safe-window reversal workflow or the applicable note and reissue. Notes support partial disposition and integrate explicitly with M3 CreditTranches. Every held-source application/refund names its tranches and expected versions; no FIFO, LIFO, weighted-average, pro-rata, automatic source selection, or automatic document matching exists. TaxSnapshot and RateRecord references are preserved exactly.
+
+For each Posted, non-reversed CreditNote or DebitNote, the authoritative current state is:
+
+`posted_amount = applied_amount + refunded_amount + held_remaining_amount + undisposed_amount`.
+
+All five fields are non-negative Money. `posted_amount` is the immutable posted amount; `applied_amount` and `refunded_amount` are cumulative current amounts net of linked reversals; `held_remaining_amount` is the unconsumed balance of note-owned CreditTranches; `undisposed_amount` is not yet applied, transferred into a tranche, or refunded. A historical hold records transferred value but that cumulative history is never added to current applied/refunded values or used as the current held balance. Hold moves value from undisposed to held remaining; application/refund of a named note-owned tranche moves it from held remaining to applied/refunded; linked reversal restores exact value and original references to the immediately preceding category.
+
+Period states are exactly `Open`, `SoftClosed`, `HardClosed`, and `Reopened`. Reopened periods allow approved adjustments only and require re-close. Hard Close cannot bypass mandatory evidence. M5 supplies Trial Balance, P&L, Balance Sheet, and VAT-output evidence; M6 supplies bank-reconciliation evidence. Until those providers exist and return immutable satisfied evidence, `POST /v1/periods/{id}/hard-close` returns `422 close_gate_unmet` with no Period, VAT, Ledger, business-audit, or business-outbox mutation. VAT locking is atomic with successful Hard Close. VAT unlocking occurs only through approved Reopen policy. `CloseGateFailed` is not a business event.
+
+This approval changes no M0–M3 public contract or M3 event schema, implements no M5/M6 endpoint, and introduces no automatic allocation, legal/tax value, FX source, rounding policy, numbering policy, approval threshold, or Hard Close bypass.
+
+**Traceability:** approved proposal §§1–10; ADR-002, ADR-003, ADR-004, ADR-005, ADR-006, ADR-007, and ADR-009; Implementation Roadmap M4; API Contracts M4; Aggregate Design ReceivableDocument, PayableDocument, and AccountingPeriod; Database Design Receivables, Payables, and Period schemas; Repository Contracts note and Period contracts; Domain Events M4 schemas; M3 CreditTranche contracts; Engineering Constitution ARCH-02 through ARCH-05, DOM-02 through DOM-10, API-01 through API-07, DB-02 through DB-06, and ERR-01 through ERR-05.
