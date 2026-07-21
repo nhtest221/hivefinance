@@ -56,9 +56,123 @@ Columns: **Event** · **Producer (aggregate)** · **Trigger (command)** · **Key
 | `PaymentAllocated` | Allocation | RecordPayment | allocationId, links[billId, applied Money], bankAccountId, rateRef, withholding | Reporting(cash view), Audit | cash payments, AP |
 | `RealisedFXRecognised` | Allocation | settlement | allocationId, Money(gain/loss), accountId | Reporting, Audit | FX P&L projection |
 | `WithholdingCaptured` | Allocation | ApplyWithholding | allocationId, type(AIT/VDS), Money, accountId | Reporting(tax), Audit | 1070/1072 registers |
-| `AdvanceRecorded` / `CreditHeld` | PartyCreditBalance | RecordAdvance/HoldCredit | partyId, Money | Reporting | 2060/1075 projection |
+| `AdvanceRecorded` / `CreditHeld` | CreditTranche | RecordAdvance/HoldCredit | partyId, Money | Reporting | immutable source + 2060/1075 projection |
 | `CreditApplied` / `CreditRefunded` | Allocation | ApplyCredit/RefundCredit | allocationId, partyId, Money, targetDocId? | Reporting, Receivables/Payables(display) | credit drawdown |
 | `AllocationReversed` | Allocation | ReverseAllocation | allocationId | Reporting, Audit | reverse settlement projections |
+
+#### Settlement party-credit events v2
+
+The existing v1 names and meanings remain available. Version 2 is backward-compatible and adds complete immutable CreditTranche identity, transaction/functional values, RateRecord references, and consumption/restoration linkage. Consumers opt into v2. Event payloads never authorize source selection; commands have already selected and version-checked every source. Event metadata follows the standard envelope with UUID `event_id`, the unchanged `event_name`, integer `event_version` equal to `2`, UTC `occurred_at`, effective `correlation_id`, and triggering command or event `causation_id`.
+
+##### CreditHeld v2
+
+- **Owner:** Settlement & Cash Application.
+- **Trigger:** a posted receipt/payment retains unapplied value and atomically creates immutable source tranches.
+- **Idempotency:** one `CreditHeld` v2 event per originating Allocation; replay emits no new tranche or event.
+- **Causation/correlation:** the posted receipt/payment command is causation; the effective command correlation ID is propagated.
+
+```json
+{
+  "event_id":"265705b7-bd8a-441a-8257-d458dafd6e35",
+  "event_name":"CreditHeld",
+  "event_version":2,
+  "occurred_at":"2026-07-10T10:00:00Z",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"1cc3fed9-d78a-421c-b31d-33de19cd1501",
+  "payload":{
+    "allocationId":"1204d0d4-3d0a-4c16-83ec-99f39802714c",
+    "partyType":"customer",
+    "partyId":"2d692c41-a3b1-4d2f-8946-fbb56491d00b",
+    "money":{"amount":"20.0000","currency":"USD"},
+    "creditSources":[
+      {"creditTrancheId":"555a1bee-36a8-40d2-a160-83982d410a53","transactionMoney":{"amount":"20.0000","currency":"USD"},"functionalMoney":{"amount":"2000.0000","currency":"BDT"},"sourceRateRecordId":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparisonRateRecordId":null,"consumptionId":null,"sourceAllocationId":"1204d0d4-3d0a-4c16-83ec-99f39802714c"}
+    ]
+  }
+}
+```
+
+##### CreditApplied v2
+
+- **Owner:** Settlement & Cash Application.
+- **Trigger:** named credit sources are consumed and applied to versioned open documents in a posted Allocation.
+- **Idempotency:** one event per successful application Allocation; replay emits no new consumption or event.
+- **Causation/correlation:** the application command is causation; its effective correlation ID is propagated.
+
+```json
+{
+  "event_id":"1afe09dc-b7dd-4278-b642-c68356bb93a0",
+  "event_name":"CreditApplied",
+  "event_version":2,
+  "occurred_at":"2026-07-21T10:00:00Z",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"90c3c83b-ceb3-439a-8980-684ad1368ca0",
+  "payload":{
+    "allocationId":"bc35144f-1813-4760-8e12-9432695b6910",
+    "partyType":"customer",
+    "partyId":"2d692c41-a3b1-4d2f-8946-fbb56491d00b",
+    "money":{"amount":"15.0000","currency":"USD"},
+    "targetDocId":"b57cd935-d096-4e9b-a86f-b2bd41f61063",
+    "creditSources":[
+      {"creditTrancheId":"555a1bee-36a8-40d2-a160-83982d410a53","transactionMoney":{"amount":"10.0000","currency":"USD"},"functionalMoney":{"amount":"1000.0000","currency":"BDT"},"sourceRateRecordId":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparisonRateRecordId":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7","consumptionId":"819bc9d0-5515-4800-b2fc-93733344fc58","targetDocumentId":"b57cd935-d096-4e9b-a86f-b2bd41f61063"},
+      {"creditTrancheId":"a72ea97c-9ea4-45f1-a285-d365195069fc","transactionMoney":{"amount":"5.0000","currency":"USD"},"functionalMoney":{"amount":"550.0000","currency":"BDT"},"sourceRateRecordId":"8e6dc9a0-ce52-4451-943d-e94c333809a7","comparisonRateRecordId":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7","consumptionId":"b585413d-d07f-4a57-b906-4b3e66e15faa","targetDocumentId":"b57cd935-d096-4e9b-a86f-b2bd41f61063"}
+    ]
+  }
+}
+```
+
+##### CreditRefunded v2
+
+- **Owner:** Settlement & Cash Application.
+- **Trigger:** named credit sources are consumed and refunded through configured bank/cash posting.
+- **Idempotency:** one event per successful refund Allocation; replay emits no new consumption, bank effect, or event.
+- **Causation/correlation:** the refund command is causation; its effective correlation ID is propagated.
+
+```json
+{
+  "event_id":"2f157d50-b9e0-46fb-8343-a21407c8caac",
+  "event_name":"CreditRefunded",
+  "event_version":2,
+  "occurred_at":"2026-07-22T09:00:00Z",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"0a164941-bba9-457b-a538-ae737658897f",
+  "payload":{
+    "allocationId":"79331f48-c7b1-4330-b154-ed9b0b91b82c",
+    "partyType":"customer",
+    "partyId":"2d692c41-a3b1-4d2f-8946-fbb56491d00b",
+    "money":{"amount":"10.0000","currency":"USD"},
+    "targetDocId":null,
+    "creditSources":[
+      {"creditTrancheId":"555a1bee-36a8-40d2-a160-83982d410a53","transactionMoney":{"amount":"10.0000","currency":"USD"},"functionalMoney":{"amount":"1000.0000","currency":"BDT"},"sourceRateRecordId":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparisonRateRecordId":"670aa770-074c-4556-9c09-f81ea68cfe96","consumptionId":"819bc9d0-5515-4800-b2fc-93733344fc58","targetDocumentId":null}
+    ]
+  }
+}
+```
+
+##### AllocationReversed v2
+
+- **Owner:** Settlement & Cash Application.
+- **Trigger:** a linked posted reversal atomically restores every original consumption to the same source tranche using recorded values.
+- **Idempotency:** one event per reversal Allocation; unique reversal and restoration linkage prevent duplicates.
+- **Causation/correlation:** the reversal command is causation; its effective correlation ID is propagated. Each restoration also identifies its original consumption.
+
+```json
+{
+  "event_id":"65e02439-8112-41e5-840b-04737479453e",
+  "event_name":"AllocationReversed",
+  "event_version":2,
+  "occurred_at":"2026-07-23T09:00:00Z",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"8bf96514-ac1d-4135-bf3e-c7acdc4b94c3",
+  "payload":{
+    "allocationId":"bc35144f-1813-4760-8e12-9432695b6910",
+    "reversalAllocationId":"4aa6dc20-f314-40da-ae3e-0e66e1496da2",
+    "restoredCreditSources":[
+      {"creditTrancheId":"555a1bee-36a8-40d2-a160-83982d410a53","transactionMoney":{"amount":"10.0000","currency":"USD"},"functionalMoney":{"amount":"1000.0000","currency":"BDT"},"sourceRateRecordId":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparisonRateRecordId":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7","originalConsumptionId":"819bc9d0-5515-4800-b2fc-93733344fc58","restorationConsumptionId":"aa83f251-e74f-4d8e-be93-705685cb8063"},
+      {"creditTrancheId":"a72ea97c-9ea4-45f1-a285-d365195069fc","transactionMoney":{"amount":"5.0000","currency":"USD"},"functionalMoney":{"amount":"550.0000","currency":"BDT"},"sourceRateRecordId":"8e6dc9a0-ce52-4451-943d-e94c333809a7","comparisonRateRecordId":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7","originalConsumptionId":"b585413d-d07f-4a57-b906-4b3e66e15faa","restorationConsumptionId":"947c3b97-cdd3-4132-97f5-569e6f84b088"}
+    ]
+  }
+}
+```
 
 ### Tax
 | Event | Producer | Trigger | Payload | Consumers | Effect |

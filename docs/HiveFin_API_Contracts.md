@@ -1411,6 +1411,11 @@ No unresolved governance decision remains in this proposal. Draft editing, publi
 **Approved SHA-256:** `84f29614cf3b830c2c24867e83c3731667c37e622ef30b4aa244b407b23cba6f`
 **Scope:** This amendment freezes the seven public M3 Settlement endpoints and their Receipt, Payment, Allocation, PartyCredit, withholding, FX-reference, reversal, approval, and pagination schemas. It preserves every approved M0/M1/M2 shared-protocol behavior and changes no existing endpoint.
 
+**Foreign-credit tranche amendment approved:** 21 July 2026.
+**Approved artifact:** `PROPOSED_GOVERNANCE_AMENDMENT_M3_FOREIGN_CREDIT_TRANCHES.md`
+**Approved SHA-256:** `087de4a1c5613541111c8cb79f1b89d93ca199ad137cd516975484f1b103a74f`
+**Effect:** The four party-credit application, refund, query, and reversal clauses below use explicit immutable source tranches, per-tranche concurrency, and backward-compatible v2 events. All other M3 clauses remain unchanged.
+
 ### 1. Scope and Common Protocol
 
 This proposal covers Settlement-owned receipt, payment, party-credit, allocation-query, and allocation-reversal operations. Internal document-balance, Tax, FX, Numbering, Period, and Ledger services remain in-process contracts and are never exposed as HTTP endpoints.
@@ -1492,15 +1497,45 @@ Cash-origin records contain a bank account, gross/bank/withholding/unapplied amo
 }
 ```
 
-#### 2.6 PartyCredit and SourceEntry
+#### 2.6 CreditTranche, CreditConsumption, and PartyCredit projection
 
-PartyCredit is the non-negative unapplied balance for one entity, party, and currency. The frozen aggregate permits no implicit currency conversion; a command in another currency returns `422 credit_currency_mismatch`. Each immutable source entry records a hold, application, refund, or reversal and links to the originating allocation. Balance changes are optimistic-versioned.
+Foreign and functional party credit is persisted as immutable source tranches. Original transaction and functional Money, source Allocation/reference, party, entity, currency, and source RateRecord reference never change. Applications and refunds append consumption facts; reversals append restorations linked to the exact original consumption. Remaining values and PartyCreditBalance totals are rebuildable projections, not consumption authority.
+
+Every application and refund requires a nonempty `credit_sources` array. Every selected source supplies its own `credit_tranche_id`, positive Money `amount`, and `expected_version`. The service never selects or substitutes a source: FIFO, LIFO, weighted-average, pro-rata, automatic selection, and single-tranche shortcuts are prohibited. Clients never supply calculated realised FX or functional carrying values.
 
 ```json
 {
-  "party_credit":{"party_type":"customer","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","available_balance":{"amount":"20.0000","currency":"USD"},"version":4,"source_entries":[{"id":"128a01c6-fcdd-4cc1-a2cf-35d63aa13255","entry_type":"held","amount":{"amount":"20.0000","currency":"USD"},"allocation_id":"1204d0d4-3d0a-4c16-83ec-99f39802714c","occurred_at":"2026-07-20T10:00:00Z"}]}
+  "credit_tranche":{
+    "credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53",
+    "party_type":"customer",
+    "party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b",
+    "currency":"USD",
+    "original_amount":{"amount":"20.0000","currency":"USD"},
+    "remaining_amount":{"amount":"10.0000","currency":"USD"},
+    "original_functional_amount":{"amount":"2000.0000","currency":"BDT"},
+    "remaining_functional_amount":{"amount":"1000.0000","currency":"BDT"},
+    "source_exchange_rate_reference":{"rate_record_id":"c30a6168-6cd8-41f7-be30-b604fc47d06c","base_currency":"USD","quote_currency":"BDT","rate":"100.00000000","effective_date":"2026-07-10"},
+    "source_allocation_id":"1204d0d4-3d0a-4c16-83ec-99f39802714c",
+    "source_reference":"RCPT-CONFIGURED",
+    "created_at":"2026-07-10T10:00:00Z",
+    "version":2
+  },
+  "credit_consumption":{
+    "id":"819bc9d0-5515-4800-b2fc-93733344fc58",
+    "credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53",
+    "allocation_id":"bc35144f-1813-4760-8e12-9432695b6910",
+    "operation":"application",
+    "amount":{"amount":"10.0000","currency":"USD"},
+    "functional_amount":{"amount":"1000.0000","currency":"BDT"},
+    "source_rate_record_id":"c30a6168-6cd8-41f7-be30-b604fc47d06c",
+    "comparison_rate_record_id":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7",
+    "reverses_consumption_id":null,
+    "occurred_at":"2026-07-21T10:00:00Z"
+  }
 }
 ```
+
+For functional-currency credit, source rate reference is null and transaction and functional Money are equal. For foreign credit, source functional Money is calculated once using the exact source RateRecord and frozen rounding policy. Partial consumption carries functional value within that one tranche; final consumption takes its exact remaining functional value so the tranche closes without drift.
 
 #### 2.7 ReversalLinkage, ApprovalResponse, and Pagination
 
@@ -1564,60 +1599,102 @@ A reversal creates a new posted Allocation linked bidirectionally to the origina
 
 **Purpose and authorization:** Apply existing unapplied party credit to one or many open documents without bank movement or new withholding. Authentication plus `settlement.credits.apply` is required.
 
-**Headers, idempotency, concurrency, correlation, pagination, and approval:** `X-Entity-Id`, `Idempotency-Key`, and `If-Match` for the PartyCredit version are required. Each document link also requires `expected_version`. Correlation follows §1; pagination does not apply. Configured policy may return `202`; no threshold is defined.
+**Headers, idempotency, concurrency, correlation, pagination, and approval:** `X-Entity-Id` and `Idempotency-Key` are required. No `If-Match` header applies; every selected `credit_sources` entry requires its own `expected_version`, and every document link requires `expected_version`. Correlation follows §1; pagination does not apply. Configured policy may return `202`; no threshold is defined.
 
-**Request:** Required fields are `party_type`, `currency`, `application_date`, and nonempty `allocations`. `party_type` is `customer` or `vendor`; Customer credit targets only invoices and Vendor credit targets only bills. No bank account, withholding, rate, gross, bank, or unapplied field is accepted. Unknown fields are rejected.
+**Request:** Required fields are `party_type`, `currency`, `application_date`, nonempty `credit_sources`, and nonempty `allocations`. Every allocation line names exactly one selected `credit_tranche_id`; totals grouped by tranche equal the selected source amount. `party_type` is `customer` or `vendor`; Customer credit targets only invoices and Vendor credit targets only bills. No bank account, withholding, settlement rate, gross, bank, unapplied, client-calculated functional amount, or client-calculated realised FX field is accepted. Unknown fields are rejected.
 
-**Validation:** The party is active, entity-owned, and matches the credit and every document. Each applied amount is positive and the sum does not exceed available credit. Currency equals the PartyCredit and target-document currencies. Documents pass versioned open-balance checks. Period and posting configuration resolve. No FX calculation occurs because no conversion is permitted by this command.
+**Validation:** The party is active and entity-owned. Every tranche belongs to the entity, party, party type, and request currency; IDs are unique; selected amounts are positive and do not exceed the named remainder; every source version matches transactionally. The sum of source amounts equals the sum of document allocations. Documents match the party/currency and pass versioned open-balance checks. For functional currency no realised FX is calculated. For foreign currency, the FX-owned internal contract compares each tranche's immutable source RateRecord carrying baseline with the target document's immutable RateRecord. Period and posting configuration resolve.
 
-**Response and stable errors:** `201` returns `allocation` and updated `party_credit`. Additional rules are `insufficient_party_credit`, `credit_currency_mismatch`, `over_allocation`, `document_party_mismatch`, `invalid_document_state`, `missing_posting_configuration`, and `unbalanced_settlement` as `422 invariant_violation` details; common errors apply.
+**Response and stable errors:** `201` returns `allocation`, `consumed_credit_sources`, and applicable `realised_fx_results`. Additional rules are `credit_tranche_not_found` (`404`), `credit_tranche_currency_mismatch`, `credit_tranche_party_mismatch`, `insufficient_credit_tranche_balance`, `over_allocation`, `document_party_mismatch`, `invalid_document_state`, `missing_credit_rate_reference`, `credit_fx_calculation_failed`, `missing_posting_configuration`, and `unbalanced_settlement` as `422 invariant_violation` details unless stated otherwise. A missing source version returns `428 precondition_required`; a stale source version returns `409 concurrency_conflict` with rule `credit_tranche_concurrency_conflict` and `required_version`. Common errors apply.
 
-**Audit and outbox:** Credit draw, document applications, balanced posting, allocation record, audit, idempotency, `CreditApplied`, document status events, and Ledger events commit atomically. No bank, withholding, `ReceiptAllocated`, or `PaymentAllocated` event is produced.
+**Audit and outbox:** Exact tranche consumptions, projection changes, document applications, balanced posting, FX result/reference, allocation record, audit, idempotency, `CreditApplied` v2, applicable `RealisedFXRecognised`, document status events, and Ledger events commit atomically. No bank, withholding, `ReceiptAllocated`, or `PaymentAllocated` event is produced.
 
 ```json
 {
-  "request":{"party_type":"customer","currency":"USD","application_date":"2026-07-21","allocations":[{"invoice_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","applied_amount":{"amount":"15.0000","currency":"USD"},"expected_version":3}]},
-  "response":{"allocation":{"id":"bc35144f-1813-4760-8e12-9432695b6910","operation":"credit_application","state":"posted","version":1},"party_credit":{"available_balance":{"amount":"25.0000","currency":"USD"},"version":5}}
+  "request":{
+    "party_type":"customer",
+    "currency":"USD",
+    "application_date":"2026-07-21",
+    "credit_sources":[
+      {"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","amount":{"amount":"10.0000","currency":"USD"},"expected_version":2},
+      {"credit_tranche_id":"a72ea97c-9ea4-45f1-a285-d365195069fc","amount":{"amount":"5.0000","currency":"USD"},"expected_version":1}
+    ],
+    "allocations":[
+      {"invoice_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","applied_amount":{"amount":"10.0000","currency":"USD"},"expected_version":3},
+      {"invoice_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","credit_tranche_id":"a72ea97c-9ea4-45f1-a285-d365195069fc","applied_amount":{"amount":"5.0000","currency":"USD"},"expected_version":3}
+    ]
+  },
+  "response":{
+    "allocation":{"id":"bc35144f-1813-4760-8e12-9432695b6910","operation":"credit_application","state":"posted","version":1},
+    "consumed_credit_sources":[
+      {"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","amount":{"amount":"10.0000","currency":"USD"},"functional_amount":{"amount":"1000.0000","currency":"BDT"},"remaining_amount":{"amount":"0.0000","currency":"USD"},"remaining_functional_amount":{"amount":"0.0000","currency":"BDT"},"version":3},
+      {"credit_tranche_id":"a72ea97c-9ea4-45f1-a285-d365195069fc","amount":{"amount":"5.0000","currency":"USD"},"functional_amount":{"amount":"550.0000","currency":"BDT"},"remaining_amount":{"amount":"15.0000","currency":"USD"},"remaining_functional_amount":{"amount":"1650.0000","currency":"BDT"},"version":2}
+    ],
+    "realised_fx_results":[
+      {"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","source_functional_amount":{"amount":"1000.0000","currency":"BDT"},"comparison_functional_amount":{"amount":"900.0000","currency":"BDT"},"realised_fx":{"amount":"100.0000","currency":"BDT"},"classification":"gain","source_rate_record_id":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparison_rate_record_id":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7"},
+      {"credit_tranche_id":"a72ea97c-9ea4-45f1-a285-d365195069fc","document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","source_functional_amount":{"amount":"550.0000","currency":"BDT"},"comparison_functional_amount":{"amount":"450.0000","currency":"BDT"},"realised_fx":{"amount":"100.0000","currency":"BDT"},"classification":"gain","source_rate_record_id":"8e6dc9a0-ce52-4451-943d-e94c333809a7","comparison_rate_record_id":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7"}
+    ]
+  }
 }
 ```
+
+The example consumes USD 15 with BDT 1,550 carrying value and clears BDT 1,350 of receivable carrying value. The internal FX result is BDT 200 gain, so the BDT 1,550 customer-credit debit equals BDT 1,350 receivable credit plus BDT 200 FX-gain credit.
 
 #### 4.2 `POST /v1/credits/{party}/refund`
 
 **Purpose and authorization:** Refund some or all available party credit through an entity-owned bank/cash account. Authentication plus `settlement.credits.refund` is required.
 
-**Headers, idempotency, concurrency, correlation, pagination, and approval:** `X-Entity-Id`, `Idempotency-Key`, and PartyCredit `If-Match` are required. Correlation follows §1; pagination does not apply. Configured policy may return `202`; no threshold is defined.
+**Headers, idempotency, concurrency, correlation, pagination, and approval:** `X-Entity-Id` and `Idempotency-Key` are required. No `If-Match` header applies; every selected `credit_sources` entry requires its own `expected_version`. Correlation follows §1; pagination does not apply. Configured policy may return `202`; no threshold is defined.
 
-**Request:** Required fields are `party_type`, `refund_date`, `bank_account_id`, positive `refund_amount`, and `expected_available_balance`. Nullable `rate_record_id` is required to be nonnull only when the refund currency differs from functional currency. The expected balance must exactly equal the current balance before the refund. No document allocation or withholding is accepted. Unknown fields are rejected.
+**Request:** Required fields are `party_type`, `refund_date`, `bank_account_id`, positive `refund_amount`, `expected_available_balance`, and nonempty `credit_sources`. The sum of selected source amounts equals `refund_amount`. Nullable `rate_record_id` is nonnull only when refund currency differs from functional currency. No document allocation, withholding, client-calculated functional amount, or client-calculated realised FX is accepted. Unknown fields are rejected.
 
-**Validation:** Party, bank, credit, currency, and entity match. Refund does not exceed the available balance. Exact immutable RateRecord rules apply for foreign currency; no rate is inferred. Period, posting, Numbering, FX, rounding, and account configuration resolve. No approval threshold is inferred.
+**Validation:** Party, bank, currency, entity, every tranche, and expected available projection agree. Tranche IDs are unique; selected amounts are positive and do not exceed named remainders; every source version matches transactionally. Functional currency rejects a RateRecord. For foreign currency, each tranche source RateRecord is the carrying baseline and the exact refund RateRecord is the comparison rate; the FX-owned internal contract calculates realised FX per tranche. Period, posting, Numbering, FX, rounding, and account configuration resolve. No rate or approval threshold is inferred.
 
-**Response and stable errors:** `201` returns the refund `allocation` and updated `party_credit`. Additional rules are `insufficient_party_credit`, `credit_balance_mismatch`, `credit_currency_mismatch`, `missing_rate_reference`, `invalid_rate_reference`, `missing_numbering_configuration`, `missing_posting_configuration`, and `unbalanced_settlement` as `422 invariant_violation` details; common errors apply.
+**Response and stable errors:** `201` returns the refund `allocation`, `consumed_credit_sources`, and applicable `realised_fx_results`. The tranche/version errors in §4.1 apply, plus `credit_balance_mismatch`, `missing_rate_reference`, `invalid_rate_reference`, `missing_numbering_configuration`, `missing_posting_configuration`, and `unbalanced_settlement`; common errors apply.
 
-**Audit and outbox:** Credit refund, bank posting, exact rate reference, audit, idempotency, `CreditRefunded`, applicable `RealisedFXRecognised`, and Ledger events commit atomically. It creates no document mutation, new withholding, or cash-receipt/payment allocation event.
+**Audit and outbox:** Exact tranche consumptions, projection changes, bank posting, FX results/references, audit, idempotency, `CreditRefunded` v2, applicable `RealisedFXRecognised`, and Ledger events commit atomically. It creates no document mutation, new withholding, or cash-receipt/payment allocation event.
 
 ```json
 {
-  "request":{"party_type":"customer","refund_date":"2026-07-22","bank_account_id":"29691970-092e-46e2-831a-4accbbbe6a22","refund_amount":{"amount":"10.0000","currency":"USD"},"expected_available_balance":{"amount":"25.0000","currency":"USD"},"rate_record_id":"670aa770-074c-4556-9c09-f81ea68cfe96"},
-  "response":{"allocation":{"id":"79331f48-c7b1-4330-b154-ed9b0b91b82c","operation":"credit_refund","state":"posted","version":1},"party_credit":{"available_balance":{"amount":"15.0000","currency":"USD"},"version":6}}
+  "request":{
+    "party_type":"customer",
+    "refund_date":"2026-07-22",
+    "bank_account_id":"29691970-092e-46e2-831a-4accbbbe6a22",
+    "refund_amount":{"amount":"10.0000","currency":"USD"},
+    "expected_available_balance":{"amount":"25.0000","currency":"USD"},
+    "rate_record_id":"670aa770-074c-4556-9c09-f81ea68cfe96",
+    "credit_sources":[{"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","amount":{"amount":"10.0000","currency":"USD"},"expected_version":2}]
+  },
+  "response":{
+    "allocation":{"id":"79331f48-c7b1-4330-b154-ed9b0b91b82c","operation":"credit_refund","state":"posted","version":1},
+    "consumed_credit_sources":[{"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","amount":{"amount":"10.0000","currency":"USD"},"functional_amount":{"amount":"1000.0000","currency":"BDT"},"remaining_amount":{"amount":"0.0000","currency":"USD"},"remaining_functional_amount":{"amount":"0.0000","currency":"BDT"},"version":3}],
+    "realised_fx_results":[{"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","source_functional_amount":{"amount":"1000.0000","currency":"BDT"},"comparison_functional_amount":{"amount":"1200.0000","currency":"BDT"},"realised_fx":{"amount":"-200.0000","currency":"BDT"},"classification":"loss","source_rate_record_id":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparison_rate_record_id":"670aa770-074c-4556-9c09-f81ea68cfe96"}]
+  }
 }
 ```
 
+The example consumes USD 10 carrying BDT 1,000 and refunds bank cash valued at BDT 1,200. The BDT 1,000 customer-credit debit plus BDT 200 FX-loss debit equals the BDT 1,200 bank credit.
+
 #### 4.3 `GET /v1/credits/{party}`
 
-**Purpose and authorization:** Return the available unapplied balance and immutable source entries for one party. Authentication plus `settlement.credits.read` is required.
+**Purpose and authorization:** Return per-currency available unapplied balances and immutable source tranches for one party. Authentication plus `settlement.credits.read` is required.
 
 **Headers, idempotency, concurrency, correlation, pagination, and approval:** `X-Entity-Id` is required; correlation follows §1. Idempotency, `If-Match`, and approval do not apply. Optional `limit` defaults to 50 and is 1–100; optional `cursor` continues the signed snapshot.
 
-**Request:** Required query field `party_type` is `customer` or `vendor`. Optional fields are `limit` and `cursor`; all others are rejected. The path party and type must resolve to one active or deactivated entity-owned master. Cross-entity and unknown resources return `404`.
+**Request:** Required query field `party_type` is `customer` or `vendor`. Optional fields are `currency`, `limit`, and `cursor`; all others are rejected. Currency filters both balances and tranches. The path party and type must resolve to one active or deactivated entity-owned master. Cross-entity and unknown resources return `404`.
 
-**Response and ordering:** `200` returns `party_credit` with current available balance, version, source entries, and `page`. Entries order by `occurred_at DESC, id DESC`. Cursor contents bind entity, party, type, currency, ordering, and read boundary. Invalid or altered cursors return `400 validation`.
+**Response and ordering:** `200` returns rebuildable `party_credit` balances and paginated immutable `credit_tranches`. Without `currency`, it returns one balance per currency and never sums currencies. Tranches order by `created_at DESC, credit_tranche_id DESC`. Cursor contents bind entity, party, type, currency, ordering, and read boundary. Invalid or altered cursors return `400 validation`.
 
 **Audit and outbox:** This read creates no business audit or outbox event unless an already-configured read-audit policy requires access logging.
 
 ```json
 {
-  "request_query":{"party_type":"customer","limit":50,"cursor":null},
-  "response":{"party_credit":{"party_type":"customer","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","available_balance":{"amount":"15.0000","currency":"USD"},"version":6,"source_entries":[{"id":"79331f48-c7b1-4330-b154-ed9b0b91b82c","entry_type":"refunded","amount":{"amount":"10.0000","currency":"USD"},"allocation_id":"79331f48-c7b1-4330-b154-ed9b0b91b82c","occurred_at":"2026-07-22T09:00:00Z"}]},"page":{"limit":50,"next_cursor":null}}
+  "request_query":{"party_type":"customer","currency":"USD","limit":50,"cursor":null},
+  "response":{
+    "party_credit":{"party_type":"customer","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","balances":[{"available_balance":{"amount":"25.0000","currency":"USD"},"functional_carrying_balance":{"amount":"2650.0000","currency":"BDT"}}],"projection_version":6},
+    "credit_tranches":[{"credit_tranche_id":"a72ea97c-9ea4-45f1-a285-d365195069fc","currency":"USD","remaining_amount":{"amount":"20.0000","currency":"USD"},"remaining_functional_amount":{"amount":"2200.0000","currency":"BDT"},"source_exchange_rate_reference":{"rate_record_id":"8e6dc9a0-ce52-4451-943d-e94c333809a7","base_currency":"USD","quote_currency":"BDT","rate":"110.00000000","effective_date":"2026-07-15"},"version":1}],
+    "page":{"limit":50,"next_cursor":null}
+  }
 }
 ```
 
@@ -1629,18 +1706,26 @@ A reversal creates a new posted Allocation linked bidirectionally to the origina
 
 **Headers, idempotency, concurrency, correlation, pagination, and approval:** `X-Entity-Id`, `Idempotency-Key`, and original Allocation `If-Match` are required. Correlation follows §1; pagination does not apply. Reversal uses the configured durable approval policy and may return `202`; no approval threshold or bypass is defined.
 
-**Request:** Body is empty. Unknown fields are rejected. The service obtains current document and PartyCredit versions through their owning contracts and applies optimistic guards inside the transaction; a conflicting change returns `409 concurrency_conflict` without retrying against a semantically different balance.
+**Request:** Body is empty. Unknown fields are rejected. The service reads the original immutable CreditConsumption records and current versions of the exact source tranches; the client cannot select replacement tranches, rates, transaction values, or functional values. All optimistic guards are applied inside the transaction; a conflict returns `409 concurrency_conflict` without substituting a source or retrying against semantically different balances.
 
-**Validation:** The original is posted, entity-owned, not previously reversed, and reversible in the requested execution period under frozen Period rules. The reversal uses original amounts, allocation links, withholding snapshots/configuration, document and settlement RateRecord references, and posting linkage. It restores document open amounts and PartyCredit consistently without creating a negative balance or over-opening beyond the original document total.
+**Validation:** The original is posted, entity-owned, not previously reversed, and reversible in the requested execution period under frozen Period rules. The reversal uses original amounts, allocation links, withholding snapshots/configuration, document, settlement, source, and comparison RateRecord references, and posting linkage. Each original credit consumption is restored once to the exact same CreditTranche with its recorded transaction and functional values. It restores document open amounts and the PartyCreditBalance projection consistently without over-opening beyond the original document total.
 
-**Response and stable errors:** `201` returns `original_allocation`, `reversal_allocation`, and `reversal_linkage`. Additional rules are `allocation_already_reversed`, `reversal_not_allowed`, `credit_balance_conflict`, `missing_posting_configuration`, and `unbalanced_reversal` as `422 invariant_violation` details; common errors apply. Transactional uniqueness permits only one successful reversal even under concurrency.
+**Response and stable errors:** `201` returns `original_allocation`, `reversal_allocation`, `restored_credit_sources` when applicable, and `reversal_linkage`. Additional rules are `allocation_already_reversed`, `reversal_not_allowed`, `credit_tranche_concurrency_conflict`, `missing_posting_configuration`, and `unbalanced_reversal` as `422 invariant_violation` details except the concurrency rule, which is `409`; common errors apply. Transactional uniqueness permits only one reversal for an Allocation and one restoration for each original consumption even under concurrency.
 
-**Audit and outbox:** Reversal Allocation, original linkage/state, restored document balances/statuses, credit restoration, reversing Ledger entry, immutable audit, idempotency, `AllocationReversed`, applicable document status and credit events, and Ledger reversal events commit atomically. Original `ReceiptAllocated`, `PaymentAllocated`, withholding, and realised-FX events are not re-emitted.
+**Audit and outbox:** Reversal Allocation, original linkage/state, restored document balances/statuses, exact same-tranche restoration facts and projection changes, reversing Ledger/FX effects, immutable audit, idempotency, `AllocationReversed` v2, applicable document status and credit events, and Ledger reversal events commit atomically. Original `ReceiptAllocated`, `PaymentAllocated`, withholding, and realised-FX events are not re-emitted.
 
 ```json
 {
   "request":{},
-  "response":{"original_allocation":{"id":"1204d0d4-3d0a-4c16-83ec-99f39802714c","state":"reversed","version":2},"reversal_allocation":{"id":"4aa6dc20-f314-40da-ae3e-0e66e1496da2","operation":"reversal","state":"posted","version":1},"reversal_linkage":{"original_allocation_id":"1204d0d4-3d0a-4c16-83ec-99f39802714c","reversal_allocation_id":"4aa6dc20-f314-40da-ae3e-0e66e1496da2","reversed_at":"2026-07-21T09:00:00Z"}}
+  "response":{
+    "original_allocation":{"id":"bc35144f-1813-4760-8e12-9432695b6910","state":"reversed","version":2},
+    "reversal_allocation":{"id":"4aa6dc20-f314-40da-ae3e-0e66e1496da2","operation":"reversal","state":"posted","version":1},
+    "restored_credit_sources":[
+      {"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","restored_amount":{"amount":"10.0000","currency":"USD"},"restored_functional_amount":{"amount":"1000.0000","currency":"BDT"},"source_rate_record_id":"c30a6168-6cd8-41f7-be30-b604fc47d06c","comparison_rate_record_id":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7","original_consumption_id":"819bc9d0-5515-4800-b2fc-93733344fc58","new_version":4},
+      {"credit_tranche_id":"a72ea97c-9ea4-45f1-a285-d365195069fc","restored_amount":{"amount":"5.0000","currency":"USD"},"restored_functional_amount":{"amount":"550.0000","currency":"BDT"},"source_rate_record_id":"8e6dc9a0-ce52-4451-943d-e94c333809a7","comparison_rate_record_id":"0bec8435-6c17-445c-b10b-3fbd3a19b8e7","original_consumption_id":"b585413d-d07f-4a57-b906-4b3e66e15faa","new_version":3}
+    ],
+    "reversal_linkage":{"original_allocation_id":"bc35144f-1813-4760-8e12-9432695b6910","reversal_allocation_id":"4aa6dc20-f314-40da-ae3e-0e66e1496da2","reversed_at":"2026-07-23T09:00:00Z"}
+  }
 }
 ```
 
@@ -1667,16 +1752,16 @@ A reversal creates a new posted Allocation linked bidirectionally to the origina
 
 `GetOpenReceivable`, `GetOpenPayable`, and versioned `ApplySettlement` remain Receivables/Payables-owned internal contracts. Settlement supplies the expected document version; the owning service conditionally changes only open balance, status, and version. No Settlement component reads or writes Receivables or Payables tables directly.
 
-Applicable RateRecord lookup and realised-FX calculation remain FX-owned internal contracts. Inputs are the applied transaction tranche, functional currency, and exact immutable document and settlement rate references. Settlement stores their immutable references and result; it never accepts or calculates a client-provided rate.
+Applicable RateRecord lookup and realised-FX calculation remain FX-owned internal contracts. A foreign credit application supplies each selected CreditTranche's immutable source RateRecord carrying baseline and the target document's immutable RateRecord as comparison. A foreign credit refund supplies each selected tranche source rate and the exact refund RateRecord as comparison. Settlement persists the returned result and references; clients never supply calculated realised FX or functional carrying values.
 
 Withholding determination and TaxSnapshot/configuration validation remain Tax-owned internal contracts. Posting remains Ledger-owned `PostingService`; Numbering remains the approved atomic shared-kernel contract; postability remains Period-owned. No internal service is exposed through this proposal.
 
-For every successful command, Settlement state, document applications, PartyCredit changes, numbering result, balanced Ledger posting, audit, idempotency result, and outbox messages commit in the approved single Unit of Work. A technical error, stale document, invalid configuration, failed posting, failed number draw, or failed internal valuation rolls back all business effects. Approval execution failure follows the frozen recoverable pending lifecycle.
+For every successful command, Settlement state, document applications, exact CreditTranche source/consumption/restoration facts, PartyCreditBalance projection changes, numbering result, balanced Ledger posting, audit, idempotency result, and outbox messages commit in the approved single Unit of Work. A technical error, stale document or tranche, invalid configuration, failed posting, failed number draw, or failed internal valuation rolls back all business effects. Approval execution failure follows the frozen recoverable pending lifecycle.
 
 ### 7. Exclusions and Configurable Policy Boundaries
 
 This proposal excludes Credit Notes, Debit Notes, full Period Close, bank reconciliation, migration, ageing and later reporting, cash forecasting, automatic matching, receipts/payments from external banks, and every M4/M5 endpoint.
 
-It defines no withholding rate or legal treatment, TaxPack value, FX source, currency precision, rounding mode, bank mapping, AR/AP/credit/withholding/FX account mapping, numbering format, sequence policy, approval threshold, reversal approval policy, period policy, or automatic allocation policy. Missing, ambiguous, inactive, or non-unique required configuration fails safely with a stable `422 invariant_violation` rule and no partial business mutation.
+It defines no withholding rate or legal treatment, TaxPack value, FX source, currency precision, rounding mode, bank mapping, AR/AP/credit/withholding/FX account mapping, numbering format, sequence policy, approval threshold, reversal approval policy, period policy, automatic allocation policy, or credit-source selection policy. FIFO, LIFO, weighted-average, pro-rata, automatic source selection, and shortcuts remain prohibited. Missing, ambiguous, inactive, or non-unique required configuration fails safely with a stable `422 invariant_violation` rule and no partial business mutation.
 
 There are no unresolved governance decisions in this proposal. The positive-value settlement equations in §2.1 are explicit, party type is explicit on otherwise ambiguous credit operations, foreign conversion is reference-only, and all approval thresholds and legal/configuration values remain external policy dependencies.

@@ -36,7 +36,17 @@ Save(allocation)                  // version-checked; Posted immutable
 FindByDocument(documentId): Allocation[]
 FindByParty(partyId, dateRange): Allocation[]
 ```
-1. **Interface:** above (+ `PartyCreditBalanceRepository`). 2. **Persistence:** allocation + links as one unit; Posted immutable. 3. **Queries:** by document, party, date, bank account. 4. **Transaction boundary:** the **settlement UoW** — Allocation + `Invoice/Bill.ApplySettlement` + settlement `JournalEntry` (+ PartyCreditBalance) commit together. 5. **Optimistic concurrency:** **highest-risk** — allocation version **plus** the document's `expectedVersion` passed to `ApplySettlement`; on document-version mismatch the whole UoW retries against the fresh open balance (strong no-over-allocation). 6. **Locking:** none (optimistic + version guard). 7. **Loading:** allocation + links. 8. **Cross-context:** reads document open balance via `GetOpenReceivable/Payable`; writes document via `ApplySettlement` — never via a Receivables/Payables repository. 9. **UoW:** settlement application service. 10. **Performance:** indexed by (documentId), (partyId, date); links bounded by a real deposit.
+1. **Interface:** above (+ `CreditTrancheRepository`). 2. **Persistence:** allocation + links as one unit; Posted immutable; credit consumption/restoration facts append-only. 3. **Queries:** by document, party, date, bank account. 4. **Transaction boundary:** the **settlement UoW** — Allocation + `Invoice/Bill.ApplySettlement` + settlement `JournalEntry` + exact CreditTranche consumptions/restorations and projection updates commit together. 5. **Optimistic concurrency:** **highest-risk** — allocation version, document `expectedVersion`, and every selected CreditTranche `expectedVersion` are checked; a mismatch fails the whole UoW and never triggers source substitution. 6. **Locking:** none (optimistic + version guard). 7. **Loading:** allocation + links; named tranche sources and immutable consumption records only when the command requires them. 8. **Cross-context:** reads document open balance via `GetOpenReceivable/Payable`; writes document via `ApplySettlement`; invokes FX for calculations — never accesses another context's repository. 9. **UoW:** settlement application service. 10. **Performance:** indexed by (documentId), (partyId, date), and tranche party/currency/remainder; links bounded by a real deposit.
+
+### CreditTrancheRepository *(Settlement)*
+```
+GetById(creditTrancheId): CreditTranche | null
+FindByParty(entityId, partyType, partyId, currency, cursor): CreditTranchePage
+Consume(creditTrancheId, amount, expectedVersion, allocationId): CreditConsumption
+RecordConsumption(consumption): void
+Restore(originalConsumptionId, expectedVersion, reversalAllocationId): CreditConsumption
+```
+1. **Authority:** immutable CreditTranche source facts and append-only CreditConsumption/restoration facts are consumption authority; PartyCreditBalance is a rebuildable query projection only. 2. **Selection:** application and refund commands supply every `credit_tranche_id`, amount, and `expected_version`; the repository never chooses a source and implements no FIFO, LIFO, weighted-average, pro-rata, automatic, or shortcut policy. 3. **Concurrency:** `Consume` and `Restore` conditionally advance only the named tranche version and projected remainders; all named guards succeed or the Settlement UoW rolls back. 4. **FX values:** the source RateRecord and recorded transaction/functional carrying values are immutable; application comparison uses the target document RateRecord and refund comparison uses the refund RateRecord through the FX-owned internal contract. 5. **Reversal:** `Restore` appends one restoration linked uniquely to the exact original consumption and restores its recorded values to the same source tranche without recalculation. 6. **Security/boundaries:** all operations require entity, party type, party, and currency agreement; RateRecord, party, and document references are UUID contracts with no cross-context repository or foreign-key access.
 
 ### InvoiceRepository / CreditNoteRepository *(Receivables)*
 ```
@@ -57,7 +67,8 @@ Mirror of Receivables. **Adds:** SBU split (Σ=1.0000) and AIT/VDS persisted wit
 
 | Repository (context) | Key methods | Concurrency | Locking | Loading | Cross-context | Performance |
 |---|---|---|---|---|---|---|
-| **PartyCreditBalanceRepository** (Settlement) | GetByParty; Save | version (concurrent draws) | none | whole | via Settlement only | index (partyId, entityId) |
+| **CreditTrancheRepository** (Settlement) | GetById; FindByParty; Consume; RecordConsumption; Restore | per selected tranche version | none | named sources + immutable facts | FX/document access only via contracts | index (entityId, partyId, currency, remainder) |
+| **PartyCreditBalanceProjection** (Settlement read model) | GetByParty; Rebuild | projection version only; never authorizes consumption | none | per-currency totals | Settlement query only | index (entityId, partyType, partyId, currency) |
 | **LedgerAccountRepository** (Ledger) | GetById; FindByEntity; Save | version (config) | none | whole (no balance) | account list via query; balance via projection | index (entityId, code) |
 | **CustomerRepository** (Receivables) | GetById; Search; Save | version | none | whole | via Receivables | index (entityId, name/taxId) |
 | **VendorRepository** (Payables) | GetById; Search; Save | version | none | whole | via Payables | index (entityId, name/TIN) |
@@ -105,8 +116,8 @@ No writes; no domain invariants; cash view via the single documented algorithm (
 |---|---|---|
 | Invoice issuance (recognition) | Invoice + JournalEntry | Receivables app service |
 | Bill approval (recognition) | Bill + JournalEntry | Payables app service |
-| Customer receipt (settlement) | Allocation + Invoice(ApplySettlement) + JournalEntry (+ PartyCreditBalance) | Settlement app service |
-| Vendor payment (settlement) | Allocation + Bill(ApplySettlement) + JournalEntry | Settlement app service |
+| Customer receipt / vendor payment (settlement) | Allocation + document ApplySettlement + JournalEntry + created CreditTranche(s), when unapplied | Settlement app service |
+| Party-credit application/refund/reversal | Allocation + exact CreditTranche consumption/restoration facts + projection + document ApplySettlement or bank movement + JournalEntry + FX result, when foreign | Settlement app service |
 | Credit note | CreditNote + JournalEntry | Receivables app service |
 | Period close | AccountingPeriod (+ emitted locks) | Period app service |
 | FX revaluation | RevaluationRun + JournalEntry(s) | FX/Period app service |
