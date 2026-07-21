@@ -59,10 +59,10 @@ POST /v1/auth/login (MFA for Owner/Finance Manager)   POST /v1/auth/mfa
 
 ### Period & Close
 ```
-POST /v1/periods/{ref}/soft-close      POST /v1/periods/{ref}/hard-close ⚡(four-eyes)
-POST /v1/periods/{ref}/reopen ⚡(approval+notify)   POST /v1/periods/{ref}/lock-vat
+POST /v1/periods/{id}/soft-close      POST /v1/periods/{id}/hard-close ⚡(four-eyes+gates)
+POST /v1/periods/{id}/reopen ⚡(approval+notify)
 POST /v1/fiscal-year/{yr}/roll ⚡
-GET  /v1/periods/{ref}   GET /v1/periods/postable?date=…
+GET  /v1/periods   GET /v1/periods/{id}   GET /v1/periods/postable?date=…
 ```
 
 ### Ledger
@@ -87,7 +87,9 @@ GET  /v1/fx/rates?pair=&date=   GET /v1/fx/revaluation?period=
 ### Receivables
 ```
 POST /v1/invoices (draft)   POST /v1/invoices/{id}/issue   POST /v1/invoices/{id}/void
-POST /v1/credit-notes   POST /v1/credit-notes/{id}/disposition
+POST /v1/credit-notes   PATCH /v1/credit-notes/{id}   GET /v1/credit-notes/{id}   GET /v1/credit-notes
+POST /v1/credit-notes/{id}/post   POST /v1/credit-notes/{id}/apply   POST /v1/credit-notes/{id}/hold
+POST /v1/credit-notes/{id}/refund   POST /v1/credit-notes/{id}/reverse
 GET  /v1/invoices/{id}   GET /v1/invoices?customer=&status=&overdue=
 GET  /v1/invoices/{id}/pdf   POST /v1/customers   PATCH /v1/customers/{id}
 GET  /v1/customers/{id}/statement
@@ -96,7 +98,9 @@ GET  /v1/customers/{id}/statement
 ### Payables
 ```
 POST /v1/bills (draft)   POST /v1/bills/{id}/approve   POST /v1/bills/{id}/void
-POST /v1/debit-notes   POST /v1/expenses
+POST /v1/debit-notes   PATCH /v1/debit-notes/{id}   GET /v1/debit-notes/{id}   GET /v1/debit-notes
+POST /v1/debit-notes/{id}/post   POST /v1/debit-notes/{id}/apply   POST /v1/debit-notes/{id}/hold
+POST /v1/debit-notes/{id}/refund   POST /v1/debit-notes/{id}/reverse   POST /v1/expenses
 GET  /v1/bills/{id}   GET /v1/bills?vendor=&status=   POST /v1/vendors   PATCH /v1/vendors/{id}
 ```
 
@@ -1765,3 +1769,283 @@ This proposal excludes Credit Notes, Debit Notes, full Period Close, bank reconc
 It defines no withholding rate or legal treatment, TaxPack value, FX source, currency precision, rounding mode, bank mapping, AR/AP/credit/withholding/FX account mapping, numbering format, sequence policy, approval threshold, reversal approval policy, period policy, automatic allocation policy, or credit-source selection policy. FIFO, LIFO, weighted-average, pro-rata, automatic source selection, and shortcuts remain prohibited. Missing, ambiguous, inactive, or non-unique required configuration fails safely with a stable `422 invariant_violation` rule and no partial business mutation.
 
 There are no unresolved governance decisions in this proposal. The positive-value settlement equations in §2.1 are explicit, party type is explicit on otherwise ambiguous credit operations, foreign conversion is reference-only, and all approval thresholds and legal/configuration values remain external policy dependencies.
+
+## 12. Approved Amendment — M4 Corrections, Notes and Period Close Foundations
+
+### 12.1 Scope and inherited protocol
+
+This contract freezes **M4 — Corrections, Notes and Period Close Foundations**, with conceptual slices M4A Notes and Corrections and M4B Period Lifecycle and Close-Gate Foundations. It defines exactly 25 public endpoints: nine Credit Note, nine Debit Note, two document void/correction, and five Period endpoints. It implements no M5/M6 public endpoint.
+
+All endpoints inherit the frozen M0–M3 protocol without redefinition. Authentication and TLS are required. `X-Entity-Id` is required and entity access is default-deny; unknown or cross-entity resources return `404 not_found`. Missing `X-Correlation-Id` is generated; a malformed supplied value returns `400 validation`. Every command requires UUID `Idempotency-Key`; exact replay returns the original response with `Idempotent-Replay: true`, while different canonical input returns `409 idempotency_conflict`. Every command marked `W1` also requires `If-Match`; missing is `428 precondition_required`, stale is `409 concurrency_conflict`. Unknown request/query fields return `400 validation`. Errors, exact decimal Money, TaxSnapshot, ExchangeRateReference, approval resources, UUIDs, UTC timestamps, and signed cursors are the inherited schemas.
+
+Header profiles are: `R` = `Authorization`, `X-Entity-Id`, optional `X-Correlation-Id`; `W0` adds required `Idempotency-Key`; `W1` adds required `Idempotency-Key` and `If-Match`. Configured approval returns the frozen `202` approval resource and no originating business mutation. Four-eyes is mandatory for Hard Close and Reopen. Note, void, and reversal approval follows configured policy without a hardcoded threshold.
+
+### 12.2 Shared note schemas and accounting rules
+
+Money uses exact decimal strings:
+
+```json
+{"amount":"115.0000","currency":"BDT"}
+```
+
+A Credit Note has fixed direction `party_type="customer"`, `document_type="invoice"`; a Debit Note has `party_type="vendor"`, `document_type="bill"`. Mismatch returns `422 invariant_violation` with `details.rule="note_direction_mismatch"`. Note state is `draft`, `posted`, or `reversed`. Drafts are editable; Posted notes, line facts, TaxSnapshots, and RateRecord references are immutable.
+
+For each Posted non-reversed note, all values are non-negative Money in note currency and:
+
+`posted_amount = applied_amount + refunded_amount + held_remaining_amount + undisposed_amount`.
+
+- `posted_amount`: original immutable posted note amount.
+- `applied_amount`: cumulative amount currently applied to eligible documents, net of linked reversals.
+- `refunded_amount`: cumulative amount refunded, net of linked reversals.
+- `held_remaining_amount`: current unconsumed balance of CreditTranches created from this note.
+- `undisposed_amount`: posted value not applied, transferred into a CreditTranche, or refunded.
+
+Historical hold facts use `transferred_amount`; cumulative historical held value is not a current-state balance. Hold moves exact value from undisposed to held remaining. Applying/refunding a note-owned CreditTranche moves exact value from held remaining to applied/refunded. Direct application moves undisposed to applied. A linked reversal restores exact value to its immediately preceding category using original references and values. No category may become negative.
+
+```json
+{
+  "note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","note_kind":"credit_note","party_type":"customer","document_type":"invoice","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","source_document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","document_number":"CN-CONFIGURED","note_date":"2026-07-21","currency":"BDT","reason_code":"CONFIGURED_REASON","posted_amount":{"amount":"115.0000","currency":"BDT"},"applied_amount":{"amount":"60.0000","currency":"BDT"},"refunded_amount":{"amount":"25.0000","currency":"BDT"},"held_remaining_amount":{"amount":"15.0000","currency":"BDT"},"undisposed_amount":{"amount":"15.0000","currency":"BDT"},"exchange_rate_reference":null,"state":"posted","version":5,"reversal":null}
+}
+```
+
+The approved Customer Credit Note example reconciles BDT `115.0000 = 60.0000 + 25.0000 + 15.0000 + 15.0000`. The approved Vendor Debit Note example reconciles BDT `230.0000 = 100.0000 + 30.0000 + 50.0000 + 50.0000`. Reversing the Customer refund restores BDT 25.0000 from refunded to held remaining (`115.0000 = 60.0000 + 0.0000 + 40.0000 + 15.0000`); reversing the preceding hold then restores BDT 40.0000 from held remaining to undisposed (`115.0000 = 60.0000 + 0.0000 + 0.0000 + 55.0000`).
+
+Clients submit no TaxSnapshot, numeric rate, functional carrying value, realised FX, calculated total, number, state, version, or disposition balance. A note line requires unique `source_line_id`, positive Money `net_amount`, and optional description. The owning context copies the source line TaxSnapshot and source document's exact RateRecord. Foreign disposition uses FX-owned calculation. Posting uses Ledger `PostingService`; number allocation uses Numbering; postability uses Period; tranche operations use M3 contracts. Every successful command commits all business state, posting/FX/Tax/tranche/document effects, audit, idempotency, and outbox atomically; failure commits none, except the already-frozen recoverable approval failed-attempt audit.
+
+No operation selects a tranche or target automatically. FIFO, LIFO, weighted-average, pro-rata, source substitution, and automatic document matching are prohibited. Note concurrency uses `If-Match`, each affected document `expected_version`, and each relevant CreditTranche `expected_version`.
+
+### 12.3 Credit Note endpoints
+
+#### 12.3.1 `POST /v1/credit-notes`
+
+Creates an editable customer/invoice correction Draft. Capability `receivables.credit_notes.create`; headers `W0`. Required: `party_type`, `document_type`, `party_id`, `source_document_id`, `source_document_expected_version`, `note_date`, configured `reason_code`, nonempty `lines`; nullable `narrative` optional. Source must be an entity-owned issued non-void invoice; party/currency/lines agree; prior effective corrections plus this draft cannot exceed source facts. Fiscal-period membership is checked without requiring postability. `201` returns Draft, provisional token, null number, zero disposition amounts, version 1. Stable rules include `invalid_source_document`, `source_document_version_conflict`, `correction_exceeds_source`, `missing_tax_configuration`, `note_direction_mismatch`. Draft, redacted audit, idempotency, and `CreditNoteCreated` v1 are atomic; no number/posting/Tax financial event.
+
+```json
+{"request":{"party_type":"customer","document_type":"invoice","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","source_document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","source_document_expected_version":3,"note_date":"2026-07-21","reason_code":"CONFIGURED_REASON","narrative":"Partial service correction","lines":[{"source_line_id":"9f38c020-cfb9-4904-a025-55933ab3637a","description":"Corrected service scope","net_amount":{"amount":"100.0000","currency":"BDT"}}]},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","document_number":null,"state":"draft","version":1}}}
+```
+
+#### 12.3.2 `PATCH /v1/credit-notes/{id}`
+
+Replaces approved Draft fields. Capability `receivables.credit_notes.create`; headers `W1`. At least one of party/source IDs, source expected version, note date, reason, nullable narrative, or complete lines is required; collections replace, never merge. Fixed direction values may only repeat their canonical values. Result must pass creation validation. Only Draft changes; otherwise `422 invariant_violation` rule `note_not_draft`. `200` returns incremented version. Conditional update, before/after audit, and idempotency are atomic; no financial event.
+
+```json
+{"request":{"reason_code":"CONFIGURED_REASON","narrative":"Revised correction narrative","source_document_expected_version":3},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","state":"draft","version":2}}}
+```
+
+#### 12.3.3 `GET /v1/credit-notes/{id}`
+
+Returns complete entity-scoped note, lines, five-field disposition summary, applications, held-source refs, valuation/posting refs, and reversal link. Capability `receivables.credit_notes.read`; headers `R`; no body/query/idempotency/concurrency/approval/pagination. `200` or `404`; no business audit/outbox.
+
+```json
+{"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","party_type":"customer","document_type":"invoice","source_document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","state":"posted","version":5,"lines":[],"applications":[],"held_credit_sources":[],"journal_entry_ids":["be44f14a-2873-4d47-84b7-2ba6545925f8"]}}}
+```
+
+#### 12.3.4 `GET /v1/credit-notes`
+
+Stable search. Capability `receivables.credit_notes.read`; headers `R`. Optional `party`, `source_document`, `state`, `reason_code`, `from`, `to`, `limit`, `cursor`; no others. Inclusive valid date range. Order `note_date DESC, id DESC`; signed cursor binds entity, normalized filters, order tuple, and fixed read boundary. Returns `credit_notes` and inherited `page`; no business audit/outbox.
+
+```json
+{"request_query":{"state":"posted","from":"2026-07-01","to":"2026-07-31","limit":50,"cursor":null},"response":{"credit_notes":[{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","document_number":"CN-CONFIGURED","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","note_date":"2026-07-21","posted_amount":{"amount":"115.0000","currency":"BDT"},"undisposed_amount":{"amount":"15.0000","currency":"BDT"},"state":"posted","version":5}],"page":{"limit":50,"next_cursor":null}}}
+```
+
+#### 12.3.5 `POST /v1/credit-notes/{id}/post`
+
+Numbers, freezes, recognizes note-period VAT correction, and posts the balanced correction. Capability `receivables.credit_notes.post`; headers `W1`; empty body; configured approval may return `202`. Complete Draft, unchanged source version, postable date, Tax/Rate/rounding/Numbering/account mappings are required. Customer posting debits configured revenue/contra and output-VAT effects and credits configured Customer Credits control. `201` returns Posted note, number, immutable values, full undisposed amount, incremented version, journal IDs. Rules: `note_not_draft`, `correction_exceeds_source`, `missing_numbering_configuration`, `missing_posting_configuration`, `missing_tax_configuration`, `missing_rate_reference`, `unbalanced_note_posting`; locked period is `423 period_locked`. Numbering, note, posting, audit, idempotency, `CreditNoteIssued` v2, Tax, and Ledger events are atomic.
+
+```json
+{"request":{},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","document_number":"CN-CONFIGURED","posted_amount":{"amount":"115.0000","currency":"BDT"},"applied_amount":{"amount":"0.0000","currency":"BDT"},"refunded_amount":{"amount":"0.0000","currency":"BDT"},"held_remaining_amount":{"amount":"0.0000","currency":"BDT"},"undisposed_amount":{"amount":"115.0000","currency":"BDT"},"state":"posted","version":2}}}
+```
+
+#### 12.3.6 `POST /v1/credit-notes/{id}/apply`
+
+Applies undisposed value or named held tranches to one or more open invoices. Capability `receivables.credit_notes.apply`; headers `W1`; configured approval may return `202`. Required: `application_date`, `source` (`undisposed` or `held`), nonempty `allocations`; each allocation has document UUID, positive Money, `expected_version`. Held source additionally requires allocation tranche IDs and nonempty `credit_sources` with unique tranche UUID, exact positive amount, and `expected_version`; all sums match. Undisposed source rejects tranche fields. Documents must be eligible same-party/entity/currency invoices with sufficient versioned open balance. `201` returns note, applications, resulting document versions, consumed sources, server FX results. Rules include `note_not_posted`, `note_reversed`, `insufficient_note_remaining`, `insufficient_held_credit`, `over_allocation`, `document_party_mismatch`, `credit_tranche_concurrency_conflict`, `missing_rate_reference`, `credit_fx_calculation_failed`, `423 period_locked`. All note/document/tranche/posting/FX/audit/idempotency/outbox effects are atomic.
+
+```json
+{"request":{"application_date":"2026-07-22","source":"undisposed","allocations":[{"document_id":"89d72a92-c4f2-4805-89cc-4f4e99ab5598","amount":{"amount":"60.0000","currency":"BDT"},"expected_version":2}]},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","applied_amount":{"amount":"60.0000","currency":"BDT"},"undisposed_amount":{"amount":"55.0000","currency":"BDT"},"version":3},"applications":[{"document_id":"89d72a92-c4f2-4805-89cc-4f4e99ab5598","amount":{"amount":"60.0000","currency":"BDT"},"version_after":3}],"consumed_credit_sources":[],"realised_fx_results":[]}}
+```
+
+#### 12.3.7 `POST /v1/credit-notes/{id}/hold`
+
+Moves undisposed value into immutable M3 customer CreditTranches. Capability `receivables.credit_notes.hold`; headers `W1`; configured approval may return `202`. Requires `hold_date` and positive Money `amount`; client rate/functional value rejected. Note must be Posted/unreversed; amount cannot exceed undisposed; date/config/rate must resolve. `201` returns updated note and created source refs. Rules: `insufficient_note_remaining`, `missing_rate_reference`, `missing_credit_configuration`, `423 period_locked`. Note disposition, CreditTranche/projection, audit, idempotency, `CreditNoteHeld`, and `CreditHeld` v2 are atomic; no Ledger movement.
+
+```json
+{"request":{"hold_date":"2026-07-22","amount":{"amount":"40.0000","currency":"BDT"}},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","held_remaining_amount":{"amount":"40.0000","currency":"BDT"},"undisposed_amount":{"amount":"15.0000","currency":"BDT"},"version":4},"credit_sources":[{"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","amount":{"amount":"40.0000","currency":"BDT"},"functional_amount":{"amount":"40.0000","currency":"BDT"},"source_rate_record_id":null,"version":1}]}}
+```
+
+#### 12.3.8 `POST /v1/credit-notes/{id}/refund`
+
+Refunds named held note tranches through M3 Settlement. Capability `receivables.credit_notes.refund`; headers `W1`; configured approval may return `202`. Required: `refund_date`, bank account UUID, positive `refund_amount`, `expected_available_balance`, nonempty `credit_sources`; exact refund `rate_record_id` is nullable/foreign-required. Each unique source belongs to this note and carries amount and `expected_version`; sums equal refund. Direct refund of undisposed value is prohibited. `201` returns note, Settlement allocation, consumed sources, server FX results. Rules include `insufficient_held_credit`, `credit_balance_mismatch`, tranche conflicts, `missing_rate_reference`, `invalid_rate_reference`, `missing_posting_configuration`, `unbalanced_refund`, `423 period_locked`. All note/tranche/projection/bank/FX/Settlement/audit/idempotency/events are atomic.
+
+```json
+{"request":{"refund_date":"2026-07-23","bank_account_id":"29691970-092e-46e2-831a-4accbbbe6a22","refund_amount":{"amount":"25.0000","currency":"BDT"},"expected_available_balance":{"amount":"40.0000","currency":"BDT"},"rate_record_id":null,"credit_sources":[{"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","amount":{"amount":"25.0000","currency":"BDT"},"expected_version":1}]},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","held_remaining_amount":{"amount":"15.0000","currency":"BDT"},"refunded_amount":{"amount":"25.0000","currency":"BDT"},"version":5},"allocation":{"id":"79331f48-c7b1-4330-b154-ed9b0b91b82c","operation":"credit_refund","state":"posted"},"realised_fx_results":[]}}
+```
+
+#### 12.3.9 `POST /v1/credit-notes/{id}/reverse`
+
+Creates one linked immutable full reversal. Capability `receivables.credit_notes.reverse`; headers `W1`; configured approval and maker/original-poster separation apply. Requires reversal date, configured reason, nonblank narrative, complete `document_versions`, and complete `credit_source_versions`; empty arrays only when none apply. Server derives immutable impact graph; financial reversal values/replacement refs are rejected. Current/reopened approved adjustment period is required, with original-period link. Downstream activity preventing exact restoration returns `422 note_reversal_blocked_by_downstream_activity`. Other rules: `note_not_posted`, `note_already_reversed`, `incomplete_reversal_versions`, `unbalanced_reversal`, `423 period_locked`. `201` returns Reversed note, reversal link, restored documents/tranches, journal IDs; uniqueness and every restoration/posting/audit/event are atomic.
+
+```json
+{"request":{"reversal_date":"2026-07-24","reason_code":"CONFIGURED_REASON","narrative":"Approved full correction reversal","document_versions":[{"document_id":"89d72a92-c4f2-4805-89cc-4f4e99ab5598","expected_version":3}],"credit_source_versions":[{"credit_tranche_id":"555a1bee-36a8-40d2-a160-83982d410a53","expected_version":2}]},"response":{"credit_note":{"id":"efeb15bc-8a19-4afd-a406-783dd225db64","state":"reversed","version":6},"reversal":{"id":"334118be-6529-42c9-b268-7db1ecad23d2","original_note_id":"efeb15bc-8a19-4afd-a406-783dd225db64","reversal_date":"2026-07-24"},"journal_entry_ids":["4609984a-a77e-4ccb-9a56-8d87e4f05efb"]}}
+```
+
+### 12.4 Debit Note endpoints
+
+Debit Note contracts mirror §12.3 only where directionally valid: vendor/bill direction, Payables capabilities, eligible bills, vendor CreditTranches, AP/vendor-credit control postings, and vendor cash refunds. They inherit every unknown-field, approval, error, version, exact-reference, no-selection, audit/outbox, and atomicity rule stated for their Credit Note counterpart.
+
+#### 12.4.1 `POST /v1/debit-notes`
+
+Creates editable vendor/bill correction Draft. Capability `payables.debit_notes.create`; headers `W0`. Schema and results mirror §12.3.1 with fixed vendor/bill direction; `201` version 1; emits `DebitNoteCreated` v1 without financial effect.
+
+```json
+{"request":{"party_type":"vendor","document_type":"bill","party_id":"8bdf810a-f3e5-4078-ac85-9a762543ed0d","source_document_id":"ee3195b1-2b7b-411f-92fa-67c1ce9350f2","source_document_expected_version":2,"note_date":"2026-07-21","reason_code":"CONFIGURED_REASON","narrative":"Vendor price correction","lines":[{"source_line_id":"12a6388c-a6b3-42d0-8e64-2efcbd8b08a7","net_amount":{"amount":"200.0000","currency":"BDT"}}]},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","document_number":null,"state":"draft","version":1}}}
+```
+
+#### 12.4.2 `PATCH /v1/debit-notes/{id}`
+
+Replaces approved fields on Draft only. Capability `payables.debit_notes.create`; headers `W1`. Contract mirrors §12.3.2; `200` increments version; `note_not_draft` otherwise; no financial event.
+
+```json
+{"request":{"narrative":"Revised vendor correction","source_document_expected_version":2},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","state":"draft","version":2}}}
+```
+
+#### 12.4.3 `GET /v1/debit-notes/{id}`
+
+Returns complete entity-scoped detail and immutable disposition refs. Capability `payables.debit_notes.read`; headers `R`; contract mirrors §12.3.3.
+
+```json
+{"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","party_type":"vendor","document_type":"bill","source_document_id":"ee3195b1-2b7b-411f-92fa-67c1ce9350f2","state":"posted","version":2,"lines":[],"applications":[],"held_credit_sources":[]}}}
+```
+
+#### 12.4.4 `GET /v1/debit-notes`
+
+Stable search. Capability `payables.debit_notes.read`; headers `R`; filters and cursor contract mirror §12.3.4; order `note_date DESC, id DESC`.
+
+```json
+{"request_query":{"state":"posted","limit":50,"cursor":null},"response":{"debit_notes":[{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","document_number":"DN-CONFIGURED","party_id":"8bdf810a-f3e5-4078-ac85-9a762543ed0d","note_date":"2026-07-21","posted_amount":{"amount":"230.0000","currency":"BDT"},"undisposed_amount":{"amount":"230.0000","currency":"BDT"},"state":"posted","version":2}],"page":{"limit":50,"next_cursor":null}}}
+```
+
+#### 12.4.5 `POST /v1/debit-notes/{id}/post`
+
+Posts vendor correction with number, immutable valuation, note-period Tax effect, and balanced Ledger effects. Capability `payables.debit_notes.post`; headers `W1`; empty body; configured approval may return `202`. Mirrors §12.3.5 with Payables mappings: debit configured Vendor Credits control, credit copied expense/asset and input-VAT effects. `201`; emits `DebitNoteIssued` v2 plus Tax/Ledger events atomically.
+
+```json
+{"request":{},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","document_number":"DN-CONFIGURED","posted_amount":{"amount":"230.0000","currency":"BDT"},"applied_amount":{"amount":"0.0000","currency":"BDT"},"refunded_amount":{"amount":"0.0000","currency":"BDT"},"held_remaining_amount":{"amount":"0.0000","currency":"BDT"},"undisposed_amount":{"amount":"230.0000","currency":"BDT"},"state":"posted","version":3}}}
+```
+
+#### 12.4.6 `POST /v1/debit-notes/{id}/apply`
+
+Applies undisposed value or named held vendor tranches to eligible open bills. Capability `payables.debit_notes.apply`; headers `W1`; approval possible. Schema/guards/results mirror §12.3.6; posting debits AP and credits Vendor Credits control. Emits `DebitNoteApplied` and, for held sources, M3 `CreditApplied` v2.
+
+```json
+{"request":{"application_date":"2026-07-22","source":"undisposed","allocations":[{"document_id":"a3eb17da-4050-4d81-908f-f0ccb63b17f3","amount":{"amount":"100.0000","currency":"BDT"},"expected_version":2}]},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","applied_amount":{"amount":"100.0000","currency":"BDT"},"undisposed_amount":{"amount":"130.0000","currency":"BDT"},"version":4},"applications":[{"document_id":"a3eb17da-4050-4d81-908f-f0ccb63b17f3","amount":{"amount":"100.0000","currency":"BDT"},"version_after":3}]}}
+```
+
+#### 12.4.7 `POST /v1/debit-notes/{id}/hold`
+
+Moves undisposed value into immutable vendor CreditTranches. Capability `payables.debit_notes.hold`; headers `W1`; approval possible. Mirrors §12.3.7 with vendor party type and emits `DebitNoteHeld` plus M3 `CreditHeld` v2. No Ledger movement.
+
+```json
+{"request":{"hold_date":"2026-07-22","amount":{"amount":"80.0000","currency":"BDT"}},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","held_remaining_amount":{"amount":"80.0000","currency":"BDT"},"undisposed_amount":{"amount":"50.0000","currency":"BDT"},"version":5},"credit_sources":[{"credit_tranche_id":"86836460-2222-41a0-83c1-318f45bf8596","amount":{"amount":"80.0000","currency":"BDT"},"functional_amount":{"amount":"80.0000","currency":"BDT"},"source_rate_record_id":null,"version":1}]}}
+```
+
+#### 12.4.8 `POST /v1/debit-notes/{id}/refund`
+
+Records cash received from vendor using named held tranches. Capability `payables.debit_notes.refund`; headers `W1`; approval possible. Mirrors §12.3.8; bank is debited and Vendor Credits control credited, with server FX result. Emits `DebitNoteRefunded` plus M3 `CreditRefunded` v2 atomically.
+
+```json
+{"request":{"refund_date":"2026-07-23","bank_account_id":"29691970-092e-46e2-831a-4accbbbe6a22","refund_amount":{"amount":"30.0000","currency":"BDT"},"expected_available_balance":{"amount":"80.0000","currency":"BDT"},"rate_record_id":null,"credit_sources":[{"credit_tranche_id":"86836460-2222-41a0-83c1-318f45bf8596","amount":{"amount":"30.0000","currency":"BDT"},"expected_version":1}]},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","held_remaining_amount":{"amount":"50.0000","currency":"BDT"},"refunded_amount":{"amount":"30.0000","currency":"BDT"},"version":6},"allocation":{"id":"4adc9a87-0085-472d-84c6-2d93fca66ccd","operation":"credit_refund","state":"posted"}}}
+```
+
+#### 12.4.9 `POST /v1/debit-notes/{id}/reverse`
+
+Creates one linked full reversal restoring exact Debit Note, bill, Settlement, tranche, Tax, FX, and Ledger effects. Capability `payables.debit_notes.reverse`; headers `W1`; approval and separation apply. Request/version/impact graph/errors/results mirror §12.3.9 with bill/vendor sources and `DebitNoteReversed`.
+
+```json
+{"request":{"reversal_date":"2026-07-24","reason_code":"CONFIGURED_REASON","narrative":"Approved debit note reversal","document_versions":[{"document_id":"a3eb17da-4050-4d81-908f-f0ccb63b17f3","expected_version":3}],"credit_source_versions":[{"credit_tranche_id":"86836460-2222-41a0-83c1-318f45bf8596","expected_version":2}]},"response":{"debit_note":{"id":"376df80e-30b4-4db4-b0a8-6093b6726e50","state":"reversed","version":7},"reversal":{"id":"e2da82d3-cf75-4813-9274-d3265f48bb5c","original_note_id":"376df80e-30b4-4db4-b0a8-6093b6726e50","reversal_date":"2026-07-24"}}}
+```
+
+### 12.5 Posted-document void and correction endpoints
+
+Draft invoices and bills remain editable through frozen M2 PATCH endpoints or may be non-destructively voided below. Draft void preserves audit history, consumes no statutory number, creates no Ledger reversal, and cannot reactivate. Issued invoices and approved bills are never edited. Safe-window void creates an immutable linked reversal; otherwise use the applicable Note/reissue workflow. Number, source facts, TaxSnapshots, and RateRecord refs are preserved.
+
+#### 12.5.1 `POST /v1/invoices/{id}/void`
+
+Voids a Draft directly or creates a safe-window linked reversal of an issued invoice. Capability `receivables.invoices.void`; headers `W1`; configured approval and separation apply to Posted reversal. Requires `void_date`, configured `reason_code`, nonblank `narrative`. Draft returns `201` void, null number/reversal, incremented version. Issued invoice must be unpaid, current Open period, VAT unfiled/unlocked, and have no downstream allocation, note application, or settlement; failure is `422 invariant_violation` rule `void_window_failed` with safe condition IDs. Success retains number and returns linked reversal/journal; `202` possible. One void, status/linkage/posting/audit/idempotency, `InvoiceVoided` v2, VAT/Ledger events are atomic; number is never reused.
+
+```json
+{"request":{"void_date":"2026-07-22","reason_code":"CONFIGURED_REASON","narrative":"Duplicate issued invoice"},"response":{"invoice":{"id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","document_number":"INV-CONFIGURED","status":"void","version":4},"reversal":{"journal_entry_id":"6a55f27b-3064-49ea-a00d-762306385e57","source_document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063"}}}
+```
+
+#### 12.5.2 `POST /v1/bills/{id}/void`
+
+Voids a Draft directly or creates a safe-window linked reversal of an approved bill. Capability `payables.bills.void`; headers `W1`; configured approval/SoD for Posted reversal. Request, validation, errors, response, uniqueness, numbering, immutable refs, audit, and atomicity mirror §12.5.1 with `BillVoided` v2.
+
+```json
+{"request":{"void_date":"2026-07-22","reason_code":"CONFIGURED_REASON","narrative":"Duplicate approved bill"},"response":{"bill":{"id":"ee3195b1-2b7b-411f-92fa-67c1ce9350f2","document_number":"BILL-CONFIGURED","status":"void","version":4},"reversal":{"journal_entry_id":"78a3830e-2346-45e1-81e3-0ef103ff850f","source_document_id":"ee3195b1-2b7b-411f-92fa-67c1ce9350f2"}}}
+```
+
+No Expense reversal endpoint is introduced. Existing Journal and Allocation reversal contracts are not redefined.
+
+### 12.6 Period lifecycle endpoints
+
+Period resource `{id}` is immutable UUID; `period_ref` is a returned/filter business key. Existing `GET /v1/periods/postable` is unchanged. States are exactly `Open`, `SoftClosed`, `HardClosed`, `Reopened`. Valid transitions are Open→SoftClosed; SoftClosed→HardClosed; HardClosed→Reopened; Reopened→SoftClosed; then fresh SoftClosed→HardClosed. No other transition or Hard Close bypass exists. Reopened permits approved adjustments only; ordinary posting never resumes. Reopen requires reason, management approval, notification, and re-close.
+
+Hard Close locks VAT atomically. Reopen with `vat_unlock_requested=false` preserves lock; true requires an explicit jurisdiction/entity policy and changes VAT only to `unlocked_for_approved_adjustments`. Missing/denied policy returns `422` rule `vat_unlock_policy_missing`/`vat_unlock_not_permitted` without mutation. Late correction posts in a currently allowed adjustment period and appends an original-period link; no HardClosed fact is backdated or changed.
+
+#### 12.6.1 `GET /v1/periods`
+
+Lists entity periods and close summaries. Capability `periods.read`; headers `R`. Optional `state`, `fiscal_year`, `from`, `to`, `limit`, `cursor`; no others. Order `starts_on DESC, id DESC`; signed cursor binds entity, filters, tuple, and read boundary. Returns `periods` and inherited `page`; no business audit/outbox.
+
+```json
+{"request_query":{"state":"SoftClosed","fiscal_year":"2026","limit":50,"cursor":null},"response":{"periods":[{"id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","starts_on":"2026-07-01","ends_on":"2026-07-31","state":"SoftClosed","vat_lock_status":"unlocked","version":2,"close_gate_summary":{"satisfied":0,"required":5}}],"page":{"limit":50,"next_cursor":null}}}
+```
+
+#### 12.6.2 `GET /v1/periods/{id}`
+
+Returns period, immutable transition history, VAT state, and close-gate evidence metadata. Capability `periods.read`; headers `R`; no body/query/idempotency/concurrency/approval/pagination. `200` or entity-hiding `404`; no business audit/outbox.
+
+```json
+{"response":{"period":{"id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","starts_on":"2026-07-01","ends_on":"2026-07-31","state":"SoftClosed","vat_lock_status":"unlocked","version":2,"transitions":[],"close_gates":[{"gate_type":"trial_balance_reviewed","status":"unmet","source_context":"reporting","source_reference":null,"produced_at":null,"reviewed_by":null,"reviewed_at":null,"evidence_version":null,"evidence_hash":null}]}}}
+```
+
+#### 12.6.3 `POST /v1/periods/{id}/soft-close`
+
+Moves Open or Reopened to SoftClosed. Capability `periods.soft_close`; headers `W1`; empty body; configured approval may return `202`. Required M4 Soft Close adjustment configuration must resolve; M5/M6 Hard Close evidence is not required. `200` increments version. Rules: `invalid_period_transition`, `period_already_soft_closed`, `missing_close_configuration`. Transition/audit/idempotency/`PeriodSoftClosed` v2 are atomic; no Ledger posting or VAT lock.
+
+```json
+{"request":{},"response":{"period":{"id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","state":"SoftClosed","vat_lock_status":"unlocked","version":2}}}
+```
+
+#### 12.6.4 `POST /v1/periods/{id}/hard-close`
+
+Moves SoftClosed to HardClosed only after mandatory immutable evidence. Capability `periods.hard_close`; headers `W1`; empty body; mandatory four-eyes returns `202` when request is created. Baseline gates are `trial_balance_reviewed`, `profit_and_loss_approved`, `balance_sheet_approved`, `vat_outputs_approved` from M5 Reporting and `bank_reconciliation_completed` from M6 Reconciliation. Configuration may add but not remove gates. Missing provider, error, timeout, malformed/stale/changed evidence is unmet, never skipped.
+
+Direct unmet evaluation returns `422 invariant_violation`, rule `close_gate_unmet`, safe gate types, and no ApprovalRequest, Period, VAT, Ledger, business-audit, or business-outbox mutation. Regression during approved replay leaves approval pending with only the frozen safe failed-attempt audit. Successful approved execution re-evaluates the identical set, returns `200`, and atomically copies evidence, stores its deterministic hash, changes state/VAT, writes audit/idempotency, and emits `PeriodHardClosed` v2 and `VATPeriodLocked` v2. Other rules: `invalid_period_transition`, `close_evidence_changed`, `vat_lock_policy_missing`; inherited `428/409` concurrency. No year-end roll.
+
+```json
+{"request":{},"response":{"error_code":"invariant_violation","message":"Mandatory close gates are not satisfied.","details":{"rule":"close_gate_unmet","unmet_gates":["profit_and_loss_approved","balance_sheet_approved","vat_outputs_approved","bank_reconciliation_completed"]}}}
+```
+
+```json
+{"request":{},"response":{"period":{"id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","state":"HardClosed","vat_lock_status":"locked","version":3,"close_evidence_set_hash":"CONFIGURED_SHA256","hard_closed_at":"2026-09-15T12:00:00Z","hard_closed_by":"1b8f3c2f-4e62-4fa9-a924-77848017a9a6"}}}
+```
+
+#### 12.6.5 `POST /v1/periods/{id}/reopen`
+
+Moves HardClosed to adjustment-only Reopened. Capability `periods.reopen`; headers `W1`; mandatory four-eyes. Requires configured `reason_code`, nonblank `narrative`, boolean `vat_unlock_requested`. Creates affected-user notification, never ordinary posting. `200` after replay returns state, VAT status, re-close requirement, approval attribution; initial `202` possible. Rules: `invalid_period_transition`, `reopen_reason_required`, `vat_unlock_policy_missing`, `vat_unlock_not_permitted`. Transition, optional policy-authorized VAT unlock, retained evidence refs, notification, audit, idempotency, `PeriodReopened` v2 and optional `VATPeriodUnlocked` v1 are atomic.
+
+```json
+{"request":{"reason_code":"CONFIGURED_REASON","narrative":"Approved late adjustment required","vat_unlock_requested":false},"response":{"period":{"id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","state":"Reopened","vat_lock_status":"locked","reclose_required":true,"version":4},"notification":{"event":"PeriodReopened","audience":"affected_entity_users"}}}
+```
+
+There is no public standalone VAT-lock endpoint. Fiscal-year roll remains outside these foundations pending a separate complete contract.
+
+### 12.7 Internal CloseGateProvider v1 and exclusions
+
+`CloseGateProvider` is an internal versioned Period-owned consumer contract implemented by provider adapters, never HTTP and never cross-context repository access. Input is contract version 1, entity UUID, period UUID/ref, gate type, effective correlation UUID, and fixed evaluation timestamp. Output status is `satisfied` or `unmet`, with source context/reference, production/review metadata, positive immutable evidence version or lowercase SHA-256 hash. Period validates ownership, completeness, freshness, and stability and copies the exact accepted results into Period-owned immutable evidence rows on success.
+
+```json
+{"contract_version":1,"gate_type":"profit_and_loss_approved","entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee","period_id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","status":"unmet","source_context":"reporting","source_reference":null,"produced_at":null,"reviewed_by":null,"reviewed_at":null,"evidence_version":null,"evidence_hash":null}
+```
+
+`CloseGateFailed` is not a business event. M4 introduces no M5/M6 endpoint, Reporting/Reconciliation evidence fabrication, automatic allocation, Expense reversal, standalone VAT lock, year-end roll, legal VAT rule, tax/rate/account value, FX source, rounding policy, numbering format/reset, approval threshold, reason catalog, or notification delivery policy. Missing/ambiguous required configuration fails safely with `422 invariant_violation` and no partial effect.

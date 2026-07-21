@@ -29,7 +29,7 @@ No cycles (synchronous). Reporting is a continuous parallel track.
 | **M1 Ledger + Valuation** | Ledger, Tax, FX | The posting core and its upstream valuation services |
 | **M2 Documents** | Receivables, Payables | Invoice/bill issuance → recognition postings |
 | **M3 Settlement** | Settlement | Receipts/payments, `ApplySettlement`, realised FX, withholding |
-| **M4 Corrections + Close** | Credit/Debit Notes, Period close lifecycle | Void-window, notes, soft/hard close |
+| **M4 — Corrections, Notes and Period Close Foundations** | Credit/Debit Notes, corrections, Period lifecycle and close-gate foundations | M4A notes/corrections; M4B period lifecycle and evidence-gated close foundations |
 | **M5 Reporting** | Reporting (TB, GL, P&L, BS, ageing, tax, cash view) | Read side matured on real events |
 | **M6 Reconciliation** | Reconciliation | CSV import, matching |
 | **M7 Migration + Parallel Run** | Migration | Idempotent conversion, dry-run, parallel run vs Xero |
@@ -155,13 +155,22 @@ Login/MFA → App shell + entity switcher + dashboard skeleton → Invoices (+PD
 | M1 Ledger + Tax + FX | M | M0 |
 | M2 Receivables + Payables | L | M1 |
 | M3 Settlement | M | M2 |
-| M4 Notes + Period Close | M | M2, M3 |
+| M4 — Corrections, Notes and Period Close Foundations | M | M2, M3 |
 | M5 Reporting | M | M1–M4 (grows) |
 | M6 Reconciliation | S–M | M3 |
 | M7 Migration + Parallel Run | L | M2–M5 |
 | M8 Hardening + Go-Live | M | all |
 
 (S≈small, M≈medium, L≈large relative effort.)
+
+### M4 delivery slices and staged Hard Close
+
+M4 is one roadmap milestone with two conceptual delivery slices; these labels do not create or rename milestones:
+
+- **M4A — Credit/Debit Notes and Corrections:** editable Draft notes; immutable Posted notes; posted invoice/bill correction through linked reversal workflows; partial apply, hold, refund, and linked reversal; explicit M3 CreditTranche selection; immutable TaxSnapshot and RateRecord preservation; approval, audit, outbox, API, frontend, persistence, and tests.
+- **M4B — Period Lifecycle and Close-Gate Foundations:** `Open`, `SoftClosed`, `HardClosed`, and `Reopened` state machinery; Soft Close, Hard Close, Reopen, approved-adjustment controls, atomic VAT locking/unlocking policy, versioned close-gate interfaces and immutable evidence; approval, audit, outbox, API, frontend, persistence, and tests.
+
+M4 depends on completed M2 Documents and M3 Settlement. M4 delivers the Hard Close command and close-gate machinery, but Hard Close cannot succeed until every mandatory gate has immutable satisfied evidence. M5 provides Trial Balance, Profit and Loss, Balance Sheet, and VAT-output evidence; M6 provides bank-reconciliation evidence. Until those providers exist, the absent provider is an unmet gate, Hard Close returns `422 close_gate_unmet`, and no Period, VAT, Ledger, business-audit, or business-outbox mutation occurs. M4 implements no M5 or M6 endpoint and provides no bypass.
 
 ---
 

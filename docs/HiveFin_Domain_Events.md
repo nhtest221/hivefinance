@@ -37,8 +37,11 @@ Columns: **Event** · **Producer (aggregate)** · **Trigger (command)** · **Key
 | `InvoiceIssued` | Invoice | IssueInvoice | invoiceId, customerId, docNumber, Money, taxSnapshots[], rateRef, dueDate, periodRef | Reporting, Audit | AR/ageing/P&L projections |
 | `InvoiceStatusChanged` | Invoice | ApplySettlement⚡→event | invoiceId, status, openBalance | Reporting, Notifications | display status, ageing |
 | `InvoiceVoided` | Invoice | VoidInvoice | invoiceId, reasonCode | Reporting, Audit | reverse projections |
-| `CreditNoteIssued` | CreditNote | IssueCreditNote | creditNoteId, sourceInvoiceId, Money, taxSnapshot, periodRef | Reporting, Tax(summary), Audit | VAT adj in note period |
-| `CreditNoteDispositionSet` | CreditNote | SetDisposition | creditNoteId, disposition(Applied/Held/Refunded) | Reporting | AR/credit projections |
+| `CreditNoteCreated` | CreditNote | CreateCreditNoteDraft | creditNoteId, sourceInvoiceId, draft identity | Audit | draft traceability only |
+| `CreditNoteIssued` v2 | CreditNote | PostCreditNote | note/source/party IDs, immutable posted and disposition Money fields, TaxSnapshot hashes, RateRecord, number, journal IDs | Reporting, Tax(summary), Audit | VAT adjustment in note period |
+| `CreditNoteApplied` / `CreditNoteHeld` / `CreditNoteRefunded` | CreditNote | explicit disposition command | operation value, resulting five-field state, document/tranche/FX refs | Reporting, Audit | exact partial-disposition projection |
+| `CreditNoteReversed` | CreditNote | ReverseCreditNote | original/reversal IDs, impact hash, restored document/tranche refs and exact state | Reporting, Tax, Audit | linked correction reversal |
+| `CreditNoteDispositionSet` v1 | CreditNote | historical SetDisposition only | historical payload | legacy consumers | superseded for new M4 writes |
 
 ### Payables
 | Event | Producer | Trigger | Payload | Consumers | Effect |
@@ -46,7 +49,10 @@ Columns: **Event** · **Producer (aggregate)** · **Trigger (command)** · **Key
 | `BillApproved` | Bill | ApproveBill | billId, vendorId, Money, taxSnapshots[], sbuSplit, ait/vds, rateRef | Reporting, Audit | AP/ageing/expense projections |
 | `BillStatusChanged` | Bill | ApplySettlement⚡→event | billId, status, openBalance | Reporting, Notifications | display status, ageing |
 | `BillVoided` | Bill | VoidBill | billId, reasonCode | Reporting, Audit | reverse projections |
-| `DebitNoteIssued` | DebitNote | IssueDebitNote | debitNoteId, sourceBillId, Money, taxSnapshot | Reporting, Tax, Audit | input-VAT adj in note period |
+| `DebitNoteCreated` | DebitNote | CreateDebitNoteDraft | debitNoteId, sourceBillId, draft identity | Audit | draft traceability only |
+| `DebitNoteIssued` v2 | DebitNote | PostDebitNote | note/source/party IDs, immutable posted and disposition Money fields, TaxSnapshot hashes, RateRecord, number, journal IDs | Reporting, Tax, Audit | input-VAT adjustment in note period |
+| `DebitNoteApplied` / `DebitNoteHeld` / `DebitNoteRefunded` | DebitNote | explicit disposition command | operation value, resulting five-field state, document/tranche/FX refs | Reporting, Audit | exact partial-disposition projection |
+| `DebitNoteReversed` | DebitNote | ReverseDebitNote | original/reversal IDs, impact hash, restored document/tranche refs and exact state | Reporting, Tax, Audit | linked correction reversal |
 | `ExpenseRecorded` | Expense | RecordExpense | expenseId, category, sbuSplit, settlementType, Money, ait | Reporting, Audit | expense projections |
 
 ### Settlement & Cash Application
@@ -191,11 +197,86 @@ The existing v1 names and meanings remain available. Version 2 is backward-compa
 ### Period & Close
 | Event | Producer | Trigger | Payload | Consumers | Effect |
 |---|---|---|---|---|---|
-| `PeriodSoftClosed` | AccountingPeriod | SoftClose | periodRef | Ledger/Rec/Pay/Settlement, Reporting | restrict to adjusting entries |
-| `PeriodHardClosed` | AccountingPeriod | HardClose | periodRef | all posting contexts, Reporting | block in-period postings |
-| `VATPeriodLocked` | AccountingPeriod | LockVAT | periodRef | Receivables, Settlement | enforce void-window (ADR-003) |
-| `PeriodReopened` | AccountingPeriod | Reopen | periodRef, reasonCode, approverId | affected users(notify), Audit | temporary unlock + re-close due |
+| `PeriodSoftClosed` v2 | AccountingPeriod | SoftClose | period/state/version/VAT transitions and actor metadata | Ledger/Rec/Pay/Settlement, Reporting | restrict to adjusting entries |
+| `PeriodHardClosed` v2 | AccountingPeriod | HardClose after all gates | period/state/version/VAT transitions, approval IDs, immutable evidence-set hash | all posting contexts, Reporting | block in-period postings |
+| `VATPeriodLocked` v2 | AccountingPeriod | successful HardClose atomically | period, VAT transition, approval/evidence refs | Receivables, Settlement, Tax | enforce void-window (ADR-003) |
+| `PeriodReopened` v2 | AccountingPeriod | approved Reopen | period/state/version/VAT transitions, reason, approval IDs, reclose flag | affected users(notify), Audit | approved adjustments only; re-close due |
+| `VATPeriodUnlocked` v1 | AccountingPeriod | policy-authorized approved Reopen | period, VAT transition, reason, approval IDs | Receivables, Settlement, Tax, Audit | unlock only under approved jurisdiction policy |
 | `YearEndRolled` | AccountingPeriod | RollYearEnd | fiscalYear, retainedEarningsPosting | Ledger, Reporting | 3020/3030 roll |
+
+`CloseGateFailed` is deliberately not a domain event. An unmet or missing M5/M6 gate returns `422 close_gate_unmet` and creates no business outbox mutation.
+
+#### M4 note event schemas
+
+All events use the frozen envelope: UUID event ID, canonical name, integer version, UTC occurred time, entity ID, correlation ID, causation ID, aggregate ID/version, and payload. Exact idempotency permits one effective event per committed operation. Payloads never contain mutable aggregates, client-calculated FX, secrets, or sensitive bank data.
+
+Created v1 events contain draft identity only and no posting. Issued v2 carries source document/version, posted period, immutable TaxSnapshot IDs/hashes, exact source RateRecord ID, number, journal IDs, and the five exact current-state amounts. Applied/Held/Refunded v1 carries the operation-specific transferred value, resulting five-field state, source/target IDs and versions, and Settlement/CreditTranche/FX refs. Historical hold transfer is named `transferred_amount`, never generic current-state `held_amount`. Reversed v1 carries original/reversal IDs, exact impact-graph hash, restored document/tranche IDs, immediately preceding category, resulting five-field state, original valuation refs, and journal IDs.
+
+```json
+{
+  "event_id":"7ad70db7-5445-429c-b6d9-b45588985d88",
+  "event_name":"CreditNoteIssued",
+  "event_version":2,
+  "occurred_at":"2026-07-21T10:00:00Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"67458ee5-ec19-4f47-ac20-5eff93fd06c6",
+  "aggregate_id":"efeb15bc-8a19-4afd-a406-783dd225db64",
+  "aggregate_version":2,
+  "payload":{"party_type":"customer","document_type":"invoice","party_id":"2d692c41-a3b1-4d2f-8946-fbb56491d00b","source_document_id":"b57cd935-d096-4e9b-a86f-b2bd41f61063","document_number":"CN-CONFIGURED","posted_amount":{"amount":"115.0000","currency":"BDT"},"applied_amount":{"amount":"0.0000","currency":"BDT"},"refunded_amount":{"amount":"0.0000","currency":"BDT"},"held_remaining_amount":{"amount":"0.0000","currency":"BDT"},"undisposed_amount":{"amount":"115.0000","currency":"BDT"},"period_ref":"2026-07","source_rate_record_id":null,"tax_snapshot_hashes":["CONFIGURED_SHA256"],"journal_entry_ids":["be44f14a-2873-4d47-84b7-2ba6545925f8"]}
+}
+```
+
+```json
+{
+  "event_id":"0967b189-d2a8-4a96-a335-9f688d5492d2",
+  "event_name":"DebitNoteRefunded",
+  "event_version":1,
+  "occurred_at":"2026-07-23T10:00:00Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"538a83ed-41d1-4f34-9c84-65bdc4548e86",
+  "aggregate_id":"376df80e-30b4-4db4-b0a8-6093b6726e50",
+  "aggregate_version":6,
+  "payload":{"refund_amount":{"amount":"30.0000","currency":"BDT"},"posted_amount":{"amount":"230.0000","currency":"BDT"},"applied_amount":{"amount":"100.0000","currency":"BDT"},"refunded_amount":{"amount":"30.0000","currency":"BDT"},"held_remaining_amount":{"amount":"50.0000","currency":"BDT"},"undisposed_amount":{"amount":"50.0000","currency":"BDT"},"settlement_allocation_id":"4adc9a87-0085-472d-84c6-2d93fca66ccd","credit_tranche_ids":["86836460-2222-41a0-83c1-318f45bf8596"],"source_rate_record_ids":[],"comparison_rate_record_id":null}
+}
+```
+
+M3 `CreditHeld`, `CreditApplied`, `CreditRefunded`, and `AllocationReversed` v2 remain unchanged and are emitted in the same UoW when a note operation changes M3 state.
+
+#### M4 period event schemas
+
+Period transition v2 payloads contain period UUID/ref, from/to states, versions before/after, VAT before/after, maker/approver/approval IDs, Reopen reason where applicable, and the immutable close evidence-set hash for Hard Close. `PeriodReopened` v2 is the affected-user notification fact. `VATPeriodLocked` v2 occurs only with successful Hard Close; `VATPeriodUnlocked` v1 only with approved policy-authorized Reopen.
+
+```json
+{
+  "event_id":"86067192-257a-40aa-b51c-24731c7494ba",
+  "event_name":"PeriodHardClosed",
+  "event_version":2,
+  "occurred_at":"2026-09-15T12:00:00Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"3530ca0e-4201-4ab1-8521-20f851defd44",
+  "aggregate_id":"45124343-5a6e-48c2-821d-6685cf1fd46e",
+  "aggregate_version":3,
+  "payload":{"period_ref":"2026-07","from_state":"SoftClosed","to_state":"HardClosed","version_before":2,"version_after":3,"vat_status_before":"unlocked","vat_status_after":"locked","maker_id":"8e1cc916-3312-4f15-a1d7-9b46ab95722d","approver_id":"1b8f3c2f-4e62-4fa9-a924-77848017a9a6","approval_id":"3530ca0e-4201-4ab1-8521-20f851defd44","close_evidence_set_hash":"CONFIGURED_SHA256"}
+}
+```
+
+```json
+{
+  "event_id":"a416d34d-d9ad-4bc2-b421-4fd0e0966c7a",
+  "event_name":"PeriodReopened",
+  "event_version":2,
+  "occurred_at":"2026-09-16T09:00:00Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"81ec946c-cbb7-4fcf-a3c5-191f9a8b168d",
+  "aggregate_id":"45124343-5a6e-48c2-821d-6685cf1fd46e",
+  "aggregate_version":4,
+  "payload":{"period_ref":"2026-07","from_state":"HardClosed","to_state":"Reopened","version_before":3,"version_after":4,"reason_code":"CONFIGURED_REASON","narrative":"Approved late adjustment required","vat_status_before":"locked","vat_status_after":"locked","maker_id":"8e1cc916-3312-4f15-a1d7-9b46ab95722d","approver_id":"1b8f3c2f-4e62-4fa9-a924-77848017a9a6","approval_id":"81ec946c-cbb7-4fcf-a3c5-191f9a8b168d","reclose_required":true,"notification_audience":"affected_entity_users"}
+}
+```
 
 ### Identity & Access
 | Event | Producer | Trigger | Payload | Consumers | Effect |
@@ -317,7 +398,7 @@ The event never contains the command payload, command result, payload hash, idem
 `IssueCreditNote` → one transaction: credit note posted, VAT adjustment dated in **note's** period, `JournalEntry` → commit → emit `CreditNoteIssued` → Tax summary (note period), Reporting.
 
 **D. Period hard close**
-`HardClose` (four-eyes) → emit `PeriodHardClosed` + `VATPeriodLocked` → posting contexts reject in-period dates; Receivables/Settlement disable void-window for that period (ADR-003).
+`HardClose` (four-eyes) evaluates every mandatory immutable close-gate result. M5 supplies reporting evidence and M6 supplies reconciliation evidence. Until every provider returns satisfied evidence, the command returns `422 close_gate_unmet` and emits no business event. A Reopened period must first transition to SoftClosed; it cannot bypass directly to HardClosed. On success from SoftClosed, one transaction copies the accepted evidence set, moves to `HardClosed`, locks VAT, and writes `PeriodHardClosed` v2 + `VATPeriodLocked` v2 to the outbox. Posting contexts then reject in-period dates and Receivables/Settlement disable the void-window (ADR-003). `CloseGateFailed` is never emitted.
 
 **E. Period-end FX revaluation**
 Soft Close → `RunRevaluation` → `UnrealisedFXRevalued` → Ledger posts adjusting entries → next-period start → `RevaluationReversed`.
