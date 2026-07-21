@@ -57,8 +57,11 @@
 ### settlement
 - **allocation** — `direction`, `settlement_date`, `amount`, `currency`, `rate_record_id(uuid)`, `bank_account_id(uuid)`, `party_id(uuid)`, `state`. Append-only when Posted.
 - **allocation_link** — `allocation_id(fk)`, `target_document_id(uuid)`, `applied_amount`, `realised_fx`, `withholding_type(null)`, `withholding_amount(null)`.
-- **party_credit_balance** — `party_id`, `balance`. Constraint: balance ≥ 0.
-- Indexes: allocation_link(target_document_id), allocation(party_id, settlement_date).
+- **credit_tranche** — `credit_tranche_id`, `entity_id`, `party_type`, `party_id(uuid)`, `currency`, `original_amount`, `remaining_amount`, `original_functional_amount`, `remaining_functional_amount`, `source_rate_record_id(uuid,null)`, `source_rate_reference(json,null)`, `source_allocation_id(fk)`, `source_reference(null)`, `created_at`, `version`. The source identity, party/entity/currency, original values, source linkage, and source rate reference are immutable. Remaining values are non-negative guarded projections rebuilt from source and consumption facts.
+- **credit_consumption** — `id`, `entity_id`, `credit_tranche_id(fk)`, `allocation_id(fk)`, `operation(application|refund|restoration)`, `amount`, `functional_amount`, `source_rate_record_id(uuid,null)`, `comparison_rate_record_id(uuid,null)`, `reverses_consumption_id(null)`, `occurred_at`. Rows are append-only. A restoration records the exact original transaction and functional values and links to the consumption it reverses.
+- **party_credit_balance_projection** — `entity_id`, `party_type`, `party_id`, `currency`, `available_balance`, `functional_carrying_balance`, `projection_version`. This is rebuildable read state, not consumption authority.
+- Constraints: tranche and consumption Money values ≥ 0; `remaining_amount ≤ original_amount`; `remaining_functional_amount ≤ original_functional_amount`; unique(`reverses_consumption_id`) where non-null; exact one restoration per original consumption; no cross-context foreign key for party or RateRecord UUIDs.
+- Indexes: allocation_link(target_document_id), allocation(entity_id, party_id, settlement_date), credit_tranche(entity_id, party_type, party_id, currency, created_at, credit_tranche_id), credit_tranche(entity_id, party_id, currency) partial where remaining_amount > 0, credit_consumption(entity_id, credit_tranche_id, occurred_at), unique credit_consumption(reverses_consumption_id) where non-null, party_credit_balance_projection(entity_id, party_type, party_id, currency).
 
 ### tax
 - **tax_code** — `jurisdiction`, `treatment`, `recoverable`, `gl_mapping`, `return_box_mapping(json)`.

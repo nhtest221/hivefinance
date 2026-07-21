@@ -408,3 +408,22 @@ All four settlement amounts are non-negative Money values. The approved positive
 The amendment introduces no new event schema. `ReceiptAllocated`, `PaymentAllocated`, `RealisedFXRecognised`, `WithholdingCaptured`, `CreditHeld`, `CreditApplied`, `CreditRefunded`, and `AllocationReversed` remain governed by the existing frozen Domain Events catalogue.
 
 **Traceability:** SRS v3.0 §§4.1–4.4, 5.3–5.6, 6.3, and 6.4; ADR-001, ADR-002, ADR-004, ADR-005, ADR-006, ADR-007, and ADR-009; Context Interaction Matrix §4; Context Map Settlement Partnership; Aggregate Design §§0.3, 2a, and 2b; Repository Contracts Allocation and document partnership contracts; Database Design settlement schema; Domain Events Settlement & Cash Application catalogue; API Contracts §§1–3 and 11; Implementation Roadmap M3; Engineering Constitution ARCH-02 through ARCH-05, DOM-02 through DOM-10, API-01 through API-05, DB-02 through DB-06, and ERR-01 through ERR-05.
+
+---
+
+## Governance Approval Record — API-M3-002
+
+**Status:** APPROVED
+**Date:** 21 July 2026
+**Approved artifact:** `PROPOSED_GOVERNANCE_AMENDMENT_M3_FOREIGN_CREDIT_TRANCHES.md`
+**Approved SHA-256:** `087de4a1c5613541111c8cb79f1b89d93ca199ad137cd516975484f1b103a74f`
+
+This approval refines only foreign party-credit ownership and consumption under API-M3-001. Party credit is persisted as immutable source CreditTranches. Every application and refund explicitly selects all `credit_sources`; every selected tranche carries its own `expected_version`. FIFO, LIFO, weighted-average, pro-rata, automatic selection, and source-selection shortcuts are prohibited. PartyCreditBalance is a rebuildable projection and cannot authorize consumption.
+
+For foreign application, each tranche's immutable source RateRecord is the carrying-rate baseline and the target document's immutable RateRecord is the comparison rate. For foreign refund, the source RateRecord remains the carrying baseline and the exact refund RateRecord is the comparison rate. Realised-FX calculation remains internal to FX. Clients never provide calculated realised FX or functional carrying values.
+
+Consumption and restoration facts are append-only. A reversal restores the exact transaction and functional values to the same source tranches and retains source/comparison RateRecord and original-consumption linkage. CreditHeld, CreditApplied, CreditRefunded, and AllocationReversed retain their existing names and v1 meanings; the approved backward-compatible v2 schemas identify every created, consumed, and restored tranche. All tranche, projection, document, posting, FX, audit, idempotency, and outbox effects remain atomic.
+
+This record supersedes only the aggregate PartyCredit concurrency/source-selection assumptions in API-M3-001. It adds no new public endpoint, event name, withholding rule, rate source, rounding policy, approval threshold, allocation rule, or M4/M5 scope.
+
+**Traceability:** approved proposal §§1–7; API Contracts §11.2.6 and §§11.4–11.6; Aggregate Design §§2a–2b; Database Design settlement schema; Repository Contracts AllocationRepository, CreditTrancheRepository, and Settlement UoW; Domain Events Settlement party-credit v2 schemas; ADR-002, ADR-007, and ADR-009; Engineering Constitution ARCH-02 through ARCH-05, DOM-02 through DOM-10, DB-02 through DB-06, and ERR-01 through ERR-05.

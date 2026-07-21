@@ -2,7 +2,7 @@
 
 **Frozen inputs (immutable):** SRS v3.0 · ADR-001…009 · Domain Model v2 · Interaction Matrix · AP-001 · Context Map.
 **Contradiction check:** no business-rule contradiction. One architectural refinement to the Context Map's Partnership integration is ratified in §0.3 — an *addition*, not a reversal.
-**Scope:** JournalEntry · Allocation (+PartyCreditBalance) · ReceivableDocument · PayableDocument · LedgerAccount. Remaining aggregates follow after review.
+**Scope:** JournalEntry · Allocation (+CreditTranche; PartyCreditBalance projection) · ReceivableDocument · PayableDocument · LedgerAccount. Remaining aggregates follow after review.
 **Optimise for:** correctness, auditability, maintainability — not normalisation.
 
 ---
@@ -47,37 +47,37 @@ The Context Map characterised the Settlement↔document Partnership as *"sync qu
 
 ---
 
-## 2. Aggregate: Allocation  (+ PartyCreditBalance)  *(Settlement & Cash Application)*
+## 2. Aggregate: Allocation (+ CreditTranche; PartyCreditBalance projection) *(Settlement & Cash Application)*
 
 ### 2a. Allocation
 1. **Root:** Allocation.
-2. **Entities:** AllocationLink (child: target DocumentId + applied Money + realised-FX Money).
+2. **Entities:** AllocationLink (child: target DocumentId + applied Money + realised-FX Money); CreditConsumption/Restoration links when named party-credit tranches are consumed or restored.
 3. **Value objects:** `Money`, `Direction`(Receipt/Payment), `ExchangeRateReference`, `WithholdingAmount`(AIT/VDS, directional), `BankAccountRef`(UUID), `PartyRef`(UUID), `AuditStamp`.
-4. **Boundary:** allocation header + its links (one deposit/payment settling ≥1 document). Excludes the target documents and the party credit balance.
-5. **Invariants:** Σ(link applied) + unapplied-to-credit + withholding-applied = amount settled; **each link applied ≤ target open balance** (enforced via §0.3 `ApplySettlement`); realised FX per link = (settlement rate − document invoice-date rate) × applied (calc invoked from FX); currency consistent via RateRecord; **Posted ⇒ immutable** (reversal only).
+4. **Boundary:** allocation header + its links (one deposit/payment settling ≥1 document). Excludes target documents and the rebuildable PartyCreditBalance projection; credit application/refund nevertheless names the exact CreditTranches consumed.
+5. **Invariants:** Σ(link applied) + unapplied-to-credit + withholding-applied = amount settled; **each link applied ≤ target open balance** (enforced via §0.3 `ApplySettlement`); every credit application/refund explicitly names non-duplicate `credit_sources`, amount, and per-tranche `expected_version`; no FIFO, LIFO, weighted-average, pro-rata, automatic selection, or single-tranche shortcut; realised FX is invoked from FX per link/tranche using immutable references; currency is consistent; **Posted ⇒ immutable** (reversal only).
 6. **Lifecycle:** Draft → Posted → Reversed.
 7. **Commands:** RecordReceipt, RecordPayment, AllocateToDocuments, HoldAsCredit, ApplyCredit, RefundCredit, ReverseAllocation, ApplyWithholding.
 8. **Events:** ReceiptAllocated, PaymentAllocated, RealisedFXRecognised, WithholdingCaptured, CreditHeld, CreditApplied, CreditRefunded, AllocationReversed.
 9. **Repository:** AllocationRepository (by DocumentId; query by document/party/date).
 10. **Consistency boundary:** strong within allocation+links; the ≤-open-balance check crosses to the document via synchronous `ApplySettlement` in the same transaction (§0.1/0.3).
-11. **Transactional boundary:** Allocation + document `ApplySettlement` + settlement JournalEntry (+ PartyCreditBalance change, if any) commit **together**.
-12. **Optimistic concurrency:** **highest-risk aggregate.** Allocation version **plus** the document's `expectedVersion` on `ApplySettlement` — on mismatch (a concurrent settlement), retry against the fresh open balance. This is what makes no-over-allocation strong.
-13. **Cross-aggregate refs (UUID):** target documentIds, bankAccountRef, rateRecordId, partyId, partyCreditBalanceId, journalEntryId.
-14. **Size challenge:** right-sized. Multi-document links reflect a real single deposit — bounded. PartyCreditBalance correctly *excluded* (it outlives any one allocation).
+11. **Transactional boundary:** Allocation + document `ApplySettlement` + settlement JournalEntry + named CreditTranche consumption/restoration and projection updates commit **together**.
+12. **Optimistic concurrency:** **highest-risk aggregate.** Allocation version, each document `expectedVersion`, and every selected CreditTranche `expected_version` are checked transactionally. A stale tranche fails the whole command; it is never replaced by another source.
+13. **Cross-aggregate refs (UUID):** target documentIds, bankAccountRef, settlement/document/source RateRecordIds, partyId, creditTrancheIds, journalEntryId.
+14. **Size challenge:** right-sized. Multi-document links reflect a real single deposit — bounded. CreditTranches outlive individual allocations and PartyCreditBalance remains a separate rebuildable projection.
 
-### 2b. PartyCreditBalance
-1. **Root:** PartyCreditBalance (per party × entity; the detail behind CoA 2060/1075).
-2. **Entities:** none. 3. **VOs:** `Money`, `PartyRef`, `EntityRef`.
-4. **Boundary:** the running unapplied credit/advance for one party.
-5. **Invariants:** balance ≥ 0; increases via HoldCredit/AdvanceRecorded; decreases via ApplyCredit/Refund ≤ balance.
-6. **Lifecycle:** implicit active balance.
-7. **Commands:** HoldCredit, DrawCredit, RefundFromCredit.
-8. **Events:** (covered by Allocation events; may emit CreditBalanceChanged).
-9. **Repository:** PartyCreditBalanceRepository.
-10–11. **Consistency/transaction:** its change commits within the settlement transaction; its GL counterpart (2060/1075) is the same posting.
-12. **Concurrency:** optimistic version (concurrent draws). *Medium risk.*
-13. **Refs (UUID):** partyId, entityRef.
-14. **Size:** correctly its own small aggregate (persists across allocations).
+### 2b. CreditTranche and PartyCreditBalance projection
+1. **Root:** CreditTranche, one immutable unapplied-credit source fact for a party, entity, and currency. PartyCreditBalance is a rebuildable read projection and is never consumption authority.
+2. **Entities:** append-only CreditConsumption and CreditRestoration facts. 3. **VOs:** transaction and functional `Money`, `PartyRef`, `EntityRef`, immutable source/comparison `ExchangeRateReference`.
+4. **Boundary:** immutable source facts plus append-only consumption/restoration history; projected remaining transaction and functional amounts may be persisted for guarded reads.
+5. **Invariants:** original amount, original functional amount, source Allocation/reference, party, entity, currency, and source RateRecord never change; projected remainders are non-negative; each application/refund selects explicit sources and consumes no more than each source remainder; reversal restores the exact recorded transaction and functional values to the same source tranches.
+6. **Lifecycle:** created by HoldCredit/AdvanceRecorded; partially or fully consumed by application/refund; restored only by a linked reversal. Source facts remain immutable in every state.
+7. **Commands:** HoldCredit, ConsumeNamedCreditSources, RefundNamedCreditSources, RestoreRecordedCreditConsumptions.
+8. **Events:** CreditHeld, CreditApplied, CreditRefunded, AllocationReversed, using the backward-compatible v2 tranche schemas in Domain Events.
+9. **Repository:** CreditTrancheRepository; PartyCreditBalance projection repository is read/rebuild infrastructure only.
+10–11. **Consistency/transaction:** source creation, consumption/restoration facts, guarded remainders, projection updates, the Settlement Allocation, document application or bank movement, Ledger posting, realised FX, audit, idempotency, and outbox commit atomically.
+12. **Concurrency:** every selected tranche has its own optimistic `expected_version`; no aggregate PartyCredit version substitutes for these guards. *High risk.*
+13. **FX:** a foreign application compares the tranche source RateRecord carrying baseline with the target document RateRecord; a foreign refund compares it with the refund RateRecord. FX calculation is internal to FX; clients never provide calculated realised FX or functional carrying values.
+14. **Size:** each immutable source tranche is independently guarded. The total PartyCreditBalance remains small and rebuildable but cannot authorize consumption.
 
 ---
 
@@ -207,7 +207,7 @@ Reporting owns **read models / projections** (TrialBalance, GeneralLedger, Profi
 - **Cross-aggregate references are UUID-only** (Document ID / entity / party / account / rate).
 - **Consistency model:** recognition & settlement commit document + ledger (+ allocation/openBalance) **together**; projections/status **eventual**; balances **derived** (except guarded document `openBalance`).
 - **Concurrency located:** strong — Allocation + document aggregates (optimistic version) and Sequence (atomic serialization); low — everything else.
-- **Aggregate sizing:** each challenged for too-large/too-small; balances excluded from LedgerAccount; PartyCreditBalance/Customer/Vendor kept separate from documents; document+lines kept together for their balance/tax invariants.
+- **Aggregate sizing:** each challenged for too-large/too-small; balances excluded from LedgerAccount; CreditTranche authority and the PartyCreditBalance projection remain separate from documents, as do Customer/Vendor; document+lines stay together for their balance/tax invariants.
 - **No contradiction, no AP-001 violation, no unresolved major risk** discovered.
 
 **Aggregate Design is complete and internally consistent.**
