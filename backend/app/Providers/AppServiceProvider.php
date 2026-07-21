@@ -16,14 +16,22 @@ use App\Ledger\Application\AccountReferenceQuery;
 use App\Ledger\Application\ForeignCurrencyPositionQuery;
 use App\Ledger\Application\RecognitionPostingService;
 use App\Ledger\Application\ReverseJournalApprovalHandler;
+use App\Ledger\Application\SettlementPostingService;
 use App\Ledger\Infrastructure\EloquentAccountReferenceQuery;
 use App\Ledger\Infrastructure\EloquentForeignCurrencyPositionQuery;
 use App\Ledger\Infrastructure\EloquentRecognitionPostingService;
+use App\Ledger\Infrastructure\EloquentSettlementPostingService;
 use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Payables\Application\BillApprovalCommandHandler;
+use App\Payables\Application\OpenPayableService;
+use App\Payables\Infrastructure\EloquentOpenPayableService;
 use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;
+use App\Receivables\Application\OpenReceivableService;
+use App\Receivables\Infrastructure\EloquentOpenReceivableService;
+use App\Settlement\Application\SettlementApprovalCommandHandler;
+use App\Settlement\Application\SettlementService;
 use App\Tax\Application\TaxApprovalCommandHandler;
 use App\Tax\Application\TaxCommandExecutor;
 use Illuminate\Support\ServiceProvider;
@@ -43,6 +51,9 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(AccountReferenceQuery::class, EloquentAccountReferenceQuery::class);
         $this->app->bind(ForeignCurrencyPositionQuery::class, EloquentForeignCurrencyPositionQuery::class);
         $this->app->bind(RecognitionPostingService::class, EloquentRecognitionPostingService::class);
+        $this->app->bind(SettlementPostingService::class, EloquentSettlementPostingService::class);
+        $this->app->bind(OpenReceivableService::class, EloquentOpenReceivableService::class);
+        $this->app->bind(OpenPayableService::class, EloquentOpenPayableService::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
     }
 
@@ -58,5 +69,9 @@ final class AppServiceProvider extends ServiceProvider
             $registry->register(new FxApprovalCommandHandler($type));
         }
         $registry->register($this->app->make(BillApprovalCommandHandler::class));
+        $settlement = $this->app->make(SettlementService::class);
+        foreach (['receipt', 'payment', 'credit_application', 'credit_refund', 'reversal'] as $type) {
+            $registry->register(new SettlementApprovalCommandHandler($settlement, $type));
+        }
     }
 }

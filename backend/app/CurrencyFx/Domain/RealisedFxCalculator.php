@@ -25,9 +25,35 @@ final class RealisedFxCalculator
         return $this->format($this->units($left, $scale) - $this->units($right, $scale), 10 ** $scale, $scale);
     }
 
+    /** @return array<string,string> */
+    public function calculateSettlement(string $foreignAmount, string $documentRate, string $settlementRate, string $partyType, int $scale, string $roundingMode): array
+    {
+        $result = $this->calculate($foreignAmount, $documentRate, $settlementRate, $scale, $roundingMode);
+        $signed = $partyType === 'vendor' ? $this->subtract('0.0000', $result['realised_fx'], $scale) : $result['realised_fx'];
+
+        return [...$result, 'realised_fx' => $signed, 'classification' => $this->classification($signed, $scale)];
+    }
+
+    /** @return array{source_functional:string,comparison_functional:string,realised_fx:string,classification:string} */
+    public function calculateCredit(string $foreignAmount, string $sourceRate, string $comparisonRate, string $partyType, int $scale, string $roundingMode): array
+    {
+        $values = $this->calculate($foreignAmount, $sourceRate, $comparisonRate, $scale, $roundingMode);
+        $raw = $this->subtract($values['document_functional'], $values['settlement_functional'], $scale);
+        $signed = $partyType === 'vendor' ? $this->subtract('0.0000', $raw, $scale) : $raw;
+
+        return ['source_functional' => $values['document_functional'], 'comparison_functional' => $values['settlement_functional'], 'realised_fx' => $signed, 'classification' => $this->classification($signed, $scale)];
+    }
+
     public function isZero(string $value, int $scale): bool
     {
         return $this->units($value, $scale) === 0;
+    }
+
+    private function classification(string $value, int $scale): string
+    {
+        $units = $this->units($value, $scale);
+
+        return $units === 0 ? 'none' : ($units > 0 ? 'gain' : 'loss');
     }
 
     private function multiply(string $amount, string $rate, int $scale, string $mode): string

@@ -43,6 +43,11 @@ final class ExactDecimal
         return self::minor($value, 4) > 0;
     }
 
+    public static function compare(string $left, string $right, int $scale = 4): int
+    {
+        return self::minor($left, $scale) <=> self::minor($right, $scale);
+    }
+
     private static function minor(string $value, int $scale): int
     {
         $normalized = self::normalize($value, $scale);
