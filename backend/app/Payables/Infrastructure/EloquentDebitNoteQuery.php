@@ -4,6 +4,7 @@ namespace App\Payables\Infrastructure;
 
 use App\Models\Payables\DebitNote;
 use App\Payables\Application\DebitNoteQuery;
+use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
 
 final class EloquentDebitNoteQuery implements DebitNoteQuery
@@ -13,7 +14,7 @@ final class EloquentDebitNoteQuery implements DebitNoteQuery
         return DebitNote::query()->with(['lines', 'dispositions.applications', 'reversal'])->where('entity_id', $entityId)->find($id);
     }
 
-    public function search(string $entityId, array $filters, ?string $cursor, int $limit): CursorPaginator
+    public function search(string $entityId, array $filters, ?Cursor $cursor, int $limit): CursorPaginator
     {
         $query = DebitNote::query()->where('entity_id', $entityId)
             ->when($filters['party'] ?? null, fn ($q, $v) => $q->where('vendor_id', $v))

@@ -3,6 +3,7 @@
 namespace App\Payables\Application;
 
 use App\Models\Payables\DebitNote;
+use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
 
 /**
@@ -17,5 +18,5 @@ interface DebitNoteQuery
      * @param  array<string,mixed>  $filters
      * @return CursorPaginator<int,DebitNote>
      */
-    public function search(string $entityId, array $filters, ?string $cursor, int $limit): CursorPaginator;
+    public function search(string $entityId, array $filters, ?Cursor $cursor, int $limit): CursorPaginator;
 }

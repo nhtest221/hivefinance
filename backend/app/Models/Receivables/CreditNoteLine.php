@@ -4,6 +4,7 @@ namespace App\Models\Receivables;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Override;
 
 /**
@@ -30,5 +31,11 @@ final class CreditNoteLine extends Model
     protected function casts(): array
     {
         return ['net_amount' => 'decimal:4', 'tax_snapshot' => 'array', 'tax_amount' => 'decimal:4', 'total_amount' => 'decimal:4'];
+    }
+
+    /** @return BelongsTo<CreditNote, $this> */
+    public function creditNote(): BelongsTo
+    {
+        return $this->belongsTo(CreditNote::class);
     }
 }

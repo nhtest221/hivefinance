@@ -6,7 +6,18 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Override;
 
-/** @property string $id @property string $description @property string $quantity @property string $unit_price @property string $expense_account_id @property string|null $tax_code_id @property array<string,mixed>|null $tax_snapshot @property string $line_amount @property string $tax_amount @property string $total_amount */
+/**
+ * @property string $id
+ * @property string $description
+ * @property string $quantity
+ * @property string $unit_price
+ * @property string $expense_account_id
+ * @property string|null $tax_code_id
+ * @property array<string,mixed>|null $tax_snapshot
+ * @property string $line_amount
+ * @property string $tax_amount
+ * @property string $total_amount
+ */
 final class BillLine extends Model
 {
     use HasUuids;

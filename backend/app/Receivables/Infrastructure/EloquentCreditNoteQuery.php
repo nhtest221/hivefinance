@@ -4,6 +4,7 @@ namespace App\Receivables\Infrastructure;
 
 use App\Models\Receivables\CreditNote;
 use App\Receivables\Application\CreditNoteQuery;
+use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
 
 final class EloquentCreditNoteQuery implements CreditNoteQuery
@@ -13,7 +14,7 @@ final class EloquentCreditNoteQuery implements CreditNoteQuery
         return CreditNote::query()->with(['lines', 'dispositions.applications', 'reversal'])->where('entity_id', $entityId)->find($id);
     }
 
-    public function search(string $entityId, array $filters, ?string $cursor, int $limit): CursorPaginator
+    public function search(string $entityId, array $filters, ?Cursor $cursor, int $limit): CursorPaginator
     {
         $query = CreditNote::query()->where('entity_id', $entityId)
             ->when($filters['party'] ?? null, fn ($q, $v) => $q->where('customer_id', $v))

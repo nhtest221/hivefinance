@@ -3,6 +3,7 @@
 namespace App\Receivables\Application;
 
 use App\Models\Receivables\CreditNote;
+use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
 
 /**
@@ -17,5 +18,5 @@ interface CreditNoteQuery
      * @param  array<string,mixed>  $filters
      * @return CursorPaginator<int,CreditNote>
      */
-    public function search(string $entityId, array $filters, ?string $cursor, int $limit): CursorPaginator;
+    public function search(string $entityId, array $filters, ?Cursor $cursor, int $limit): CursorPaginator;
 }

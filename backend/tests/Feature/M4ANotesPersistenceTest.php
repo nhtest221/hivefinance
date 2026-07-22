@@ -121,7 +121,23 @@ it('protects posted note facts from mutation and deletion in PostgreSQL', functi
 
     $lineId = $posted->lines->first()->id;
     expect(fn () => DB::transaction(fn () => DB::table('receivables_credit_note_lines')->where('id', $lineId)->update(['net_amount' => '999.0000'])))
-        ->toThrow(QueryException::class, 'M4 note facts are immutable');
+        ->toThrow(QueryException::class, 'Posted note lines are immutable');
+})->skip(fn (): bool => DB::getDriverName() !== 'pgsql', 'PostgreSQL immutable-fact trigger validation.');
+
+it('keeps draft note lines freely editable in PostgreSQL until the note is posted', function (): void {
+    [$entity, $invoice] = m4aReceivablesFixture();
+    $repo = app(CreditNoteRepository::class);
+    $note = $repo->addDraft(m4aDraftAttributes($entity, $invoice), [
+        ['source_line_id' => (string) Str::uuid(), 'line_no' => 1, 'net_amount' => '100.0000', 'tax_amount' => '0.0000', 'total_amount' => '100.0000'],
+    ]);
+    $lineId = $note->lines->first()->id;
+
+    // Database Design "credit_note_line": "immutable after post" — mutable while draft.
+    DB::table('receivables_credit_note_lines')->where('id', $lineId)->update(['net_amount' => '50.0000']);
+    expect(DB::table('receivables_credit_note_lines')->where('id', $lineId)->value('net_amount'))->toBe('50.0000');
+
+    DB::table('receivables_credit_note_lines')->where('id', $lineId)->delete();
+    expect(DB::table('receivables_credit_note_lines')->where('id', $lineId)->exists())->toBeFalse();
 })->skip(fn (): bool => DB::getDriverName() !== 'pgsql', 'PostgreSQL immutable-fact trigger validation.');
 
 it('rejects an unbalanced five-field equation on post in PostgreSQL', function (): void {

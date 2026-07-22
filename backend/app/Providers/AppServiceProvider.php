@@ -24,8 +24,10 @@ use App\Ledger\Infrastructure\EloquentSettlementPostingService;
 use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Payables\Application\BillApprovalCommandHandler;
+use App\Payables\Application\DebitNoteApprovalCommandHandler;
 use App\Payables\Application\DebitNoteQuery;
 use App\Payables\Application\DebitNoteRepository;
+use App\Payables\Application\DebitNoteService;
 use App\Payables\Application\OpenPayableService;
 use App\Payables\Infrastructure\EloquentDebitNoteQuery;
 use App\Payables\Infrastructure\EloquentDebitNoteRepository;
@@ -36,8 +38,10 @@ use App\Period\Application\PeriodCloseService;
 use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;
 use App\Period\Infrastructure\UnavailableCloseGateProvider;
+use App\Receivables\Application\CreditNoteApprovalCommandHandler;
 use App\Receivables\Application\CreditNoteQuery;
 use App\Receivables\Application\CreditNoteRepository;
+use App\Receivables\Application\CreditNoteService;
 use App\Receivables\Application\OpenReceivableService;
 use App\Receivables\Infrastructure\EloquentCreditNoteQuery;
 use App\Receivables\Infrastructure\EloquentCreditNoteRepository;
@@ -102,5 +106,7 @@ final class AppServiceProvider extends ServiceProvider
         foreach (['soft_close', 'hard_close', 'reopen'] as $type) {
             $registry->register(new PeriodApprovalCommandHandler($periods, $type));
         }
+        $registry->register(new CreditNoteApprovalCommandHandler($this->app->make(CreditNoteService::class), 'post'));
+        $registry->register(new DebitNoteApprovalCommandHandler($this->app->make(DebitNoteService::class), 'post'));
     }
 }
