@@ -30,7 +30,7 @@ No cycles (synchronous). Reporting is a continuous parallel track.
 | **M2 Documents** | Receivables, Payables | Invoice/bill issuance → recognition postings |
 | **M3 Settlement** | Settlement | Receipts/payments, `ApplySettlement`, realised FX, withholding |
 | **M4 — Corrections, Notes and Period Close Foundations** | Credit/Debit Notes, corrections, Period lifecycle and close-gate foundations | M4A notes/corrections; M4B period lifecycle and evidence-gated close foundations |
-| **M5 Reporting** | Reporting (TB, GL, P&L, BS, ageing, tax, cash view) | Read side matured on real events |
+| **M5 — Reporting and Cash View** | Reporting (TB, GL, P&L, BS, ageing, tax, cash view) | Read side matured on real events; M5A financial statements, M5B Cash View and Close-Gate evidence |
 | **M6 Reconciliation** | Reconciliation | CSV import, matching |
 | **M7 Migration + Parallel Run** | Migration | Idempotent conversion, dry-run, parallel run vs Xero |
 | **M8 Hardening + Go-Live** | all | Security, DR, UAT, CPA sign-off, cutover |
@@ -156,7 +156,7 @@ Login/MFA → App shell + entity switcher + dashboard skeleton → Invoices (+PD
 | M2 Receivables + Payables | L | M1 |
 | M3 Settlement | M | M2 |
 | M4 — Corrections, Notes and Period Close Foundations | M | M2, M3 |
-| M5 Reporting | M | M1–M4 (grows) |
+| M5 — Reporting and Cash View | M | M1–M4 (grows) |
 | M6 Reconciliation | S–M | M3 |
 | M7 Migration + Parallel Run | L | M2–M5 |
 | M8 Hardening + Go-Live | M | all |
@@ -171,6 +171,15 @@ M4 is one roadmap milestone with two conceptual delivery slices; these labels do
 - **M4B — Period Lifecycle and Close-Gate Foundations:** `Open`, `SoftClosed`, `HardClosed`, and `Reopened` state machinery; Soft Close, Hard Close, Reopen, approved-adjustment controls, atomic VAT locking/unlocking policy, versioned close-gate interfaces and immutable evidence; approval, audit, outbox, API, frontend, persistence, and tests.
 
 M4 depends on completed M2 Documents and M3 Settlement. M4 delivers the Hard Close command and close-gate machinery, but Hard Close cannot succeed until every mandatory gate has immutable satisfied evidence. M5 provides Trial Balance, Profit and Loss, Balance Sheet, and VAT-output evidence; M6 provides bank-reconciliation evidence. Until those providers exist, the absent provider is an unmet gate, Hard Close returns `422 close_gate_unmet`, and no Period, VAT, Ledger, business-audit, or business-outbox mutation occurs. M4 implements no M5 or M6 endpoint and provides no bypass.
+
+### M5 delivery slices
+
+M5 is one roadmap milestone with two conceptual delivery slices; these labels do not create or rename milestones:
+
+- **M5A — Reporting read models and financial statements:** Trial Balance, General Ledger, Profit and Loss, Balance Sheet, AR/AP Ageing, Tax/VAT Summary, and FX Revaluation summary reports; the immutable `ReportRun` evidence lifecycle (generation, durable four-eyes approval, automatic supersession); versioned `ReportLayout`, `AccountClassificationMap`, and `AgeingBucketSet` configuration; PDF/CSV export of approved runs; persistence, repository contracts, frontend, and tests.
+- **M5B — Cash View and Close-Gate Evidence:** the Cash View report and its versioned `CashViewPolicy`; the `ReportingCloseGateProvider` implementation of M4's `CloseGateProvider` v1 for `trial_balance_reviewed`, `profit_and_loss_approved`, `balance_sheet_approved`, and `vat_outputs_approved`; frontend close-gate status display; close-gate integration tests.
+
+M5 depends on completed M1 Ledger + Valuation, M2 Documents, M3 Settlement, and M4 Corrections/Notes/Period Close. Trial Balance, General Ledger, and account-balance reads remain owned by Ledger and are reached through a Reporting-owned adapter, not migrated or rewritten (`HiveFin_Repository_Contracts.md` §3; `HiveFin_Aggregate_Design.md` §16). M5 supplies four of Hard Close's five baseline gates; `bank_reconciliation_completed` remains M6-owned. Cash-basis Profit and Loss is excluded from M5 MVP — Cash View is the dedicated derived management report instead. M5 implements no M6 Reconciliation endpoint.
 
 ---
 

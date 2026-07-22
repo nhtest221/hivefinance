@@ -127,14 +127,19 @@ POST /v1/migration/{batch}/execute ⚡(four-eyes)
 GET  /v1/migration/{batch}/validation   GET /v1/migration/{batch}/report
 ```
 
-### Reporting (queries; `basis=accrual|cash` where allowed)
+### Reporting (queries; `basis=accrual` only except Cash View, which is always `basis=cash` — §13.1)
 ```
-GET /v1/reports/trial-balance?asOf=            GET /v1/reports/general-ledger?account=&range=
-GET /v1/reports/profit-loss?period=&sbu=&basis=  GET /v1/reports/balance-sheet?asOf=
-GET /v1/reports/ar-ageing   GET /v1/reports/ap-ageing
-GET /v1/reports/tax-summary?period=  (accrual only)   GET /v1/reports/cash-view?period=
+GET /v1/reports/trial-balance?asOf=&period_ref=&sbu=          GET /v1/reports/general-ledger?account=&range=&sbu=
+GET /v1/reports/profit-loss?period=&sbu=&basis=accrual&compare_to=  GET /v1/reports/balance-sheet?asOf=&sbu=&compare_to=
+GET /v1/reports/ar-ageing?asOf=&customer=   GET /v1/reports/ap-ageing?asOf=&vendor=
+GET /v1/reports/tax-summary?period=  (accrual only)   GET /v1/reports/cash-view?period=&sbu=
 GET /v1/reports/fx-revaluation?period=
+
+POST /v1/report-runs   GET /v1/report-runs/{id}   GET /v1/report-runs?report_type=&period=&state=
+POST /v1/report-runs/{id}/approve   GET /v1/report-runs/{id}/export?format=pdf|csv
 ```
+
+Full contracts: §13 (Approved Amendment — M5 Reporting and Cash View).
 
 ---
 
@@ -2049,3 +2054,240 @@ There is no public standalone VAT-lock endpoint. Fiscal-year roll remains outsid
 ```
 
 `CloseGateFailed` is not a business event. M4 introduces no M5/M6 endpoint, Reporting/Reconciliation evidence fabrication, automatic allocation, Expense reversal, standalone VAT lock, year-end roll, legal VAT rule, tax/rate/account value, FX source, rounding policy, numbering format/reset, approval threshold, reason catalog, or notification delivery policy. Missing/ambiguous required configuration fails safely with `422 invariant_violation` and no partial effect.
+
+---
+
+## 13. Approved Amendment — M5 Reporting and Cash View
+
+**Governance Approval Record:** `M5-GOV-001` (`HiveFin_Decision_Log.md`). Source: `PROPOSED_GOVERNANCE_AMENDMENT_M5_REPORTING_AND_CASH_VIEW.md`, SHA-256 `0e3c513382636fb8dc8d81778fdc8ff269d344043111c3d2edc5a3f0e221f32e`, approved for incorporation.
+
+### 13.1 Purpose, canonical name, and sequencing
+
+Canonical milestone name: **M5 — Reporting and Cash View**. Delivery is conceptually split without creating new roadmap milestones: **M5A — Reporting read models and financial statements** (Trial Balance, General Ledger, Profit and Loss, Balance Sheet, AR/AP Ageing, Tax/VAT Summary, FX Revaluation, the `ReportRun` evidence lifecycle, configuration providers) and **M5B — Cash View and Close-Gate Evidence** (Cash View, `CashViewPolicy`, the `ReportingCloseGateProvider`).
+
+M5 depends on completed M1 Ledger + Valuation, M2 Documents, M3 Settlement, and M4 Corrections/Notes/Period Close. M5 supplies the evidence M4's Hard Close already knows how to consume (`config/period.close_gates`); until this amendment is implemented, those four gates correctly remain `unmet` via `UnavailableCloseGateProvider`. M5 implements no M6 Reconciliation behavior and does not satisfy `bank_reconciliation_completed`.
+
+**Trial Balance, General Ledger, and account-balance reads remain Ledger-owned** (§7.5, §8.3.4) and are **not** relocated or rewritten by this amendment — Reporting consumes them through an explicit adapter (§13.13.4). Every other structure in this section is Reporting-owned.
+
+### 13.2 Common protocol and shared schemas
+
+All M5 public endpoints inherit the frozen M0–M4 protocol exactly (§1–§3, §7.1, §8.1): TLS/authentication required; `X-Entity-Id` required, default-deny, cross-entity `404 not_found`; optional `X-Correlation-Id` (generated when absent, `400 validation` on malformed); Money `{amount, currency}` exact decimal strings only; unknown fields `400 validation`; frozen error envelope `{error_code, message, details, doc_id?, required_version?}`.
+
+Header profiles: `R` (`Authorization`, `X-Entity-Id`; optional `X-Correlation-Id`) for every `GET`; `W0` (`R` + `Idempotency-Key`) for `POST /v1/report-runs`; `W1` (`W0` + `If-Match`) for `POST /v1/report-runs/{id}/approve`.
+
+**Every `GET` in this section is read-only** — no `Idempotency-Key`, no `If-Match`, no approval, no audit write, no outbox event, and **no business-state mutation**, including `GET /v1/report-runs/{id}/export`. Only `POST /v1/report-runs` and `POST /v1/report-runs/{id}/approve` write state, following the exact audit/idempotency/outbox pattern already used by every M2–M4 command.
+
+Every computed report value derives from already-posted, already-immutable facts (`JournalLine`, `TaxSnapshot`, `RateRecord`, `Allocation`) plus the versioned Reporting-owned configuration in §13.6–§13.10; no report accepts a client-supplied figure, rate, classification, or bucket boundary.
+
+### 13.3 Endpoint inventory (14 endpoints)
+
+```
+GET  /v1/reports/trial-balance?asOf=&period_ref=&sbu=&limit=&cursor=
+GET  /v1/reports/general-ledger?account=&range=&sbu=&limit=&cursor=      (§7.5, unchanged; sbu and reversal_of_entry_id are additive)
+GET  /v1/reports/profit-loss?period=&sbu=&basis=accrual&compare_to=      (basis accepts accrual only; basis=cash returns 422 unsupported_basis)
+GET  /v1/reports/balance-sheet?asOf=&sbu=&compare_to=
+GET  /v1/reports/ar-ageing?asOf=&customer=
+GET  /v1/reports/ap-ageing?asOf=&vendor=
+GET  /v1/reports/tax-summary?period=
+GET  /v1/reports/fx-revaluation?period=
+GET  /v1/reports/cash-view?period=&sbu=
+
+POST /v1/report-runs
+GET  /v1/report-runs/{id}
+GET  /v1/report-runs?report_type=&period=&state=&limit=&cursor=
+POST /v1/report-runs/{id}/approve
+GET  /v1/report-runs/{id}/export?format=pdf|csv
+```
+
+### 13.4 Immutable Report Runs and approval evidence
+
+A live `GET /v1/reports/*` call is a preview: it recomputes from current data and proves nothing was reviewed or approved. Satisfying a Hard Close gate (§12.6.4) requires an explicit, separately-approved, frozen snapshot — the `ReportRun` resource, reused across every report type.
+
+**Command surface:** `POST /v1/report-runs` (generate), `POST /v1/report-runs/{id}/approve` (durable four-eyes approve), `GET /v1/report-runs/{id}` (retrieve), `GET /v1/report-runs` (list). No separate public review endpoint exists.
+
+**Lifecycle:**
+
+```
+Generated ──(approve, no configured maker-checker)──▶ Approved ──▶ (superseded by a later Approved run for the same key)──▶ Superseded
+Generated ──(approve, configured maker-checker)──▶ PendingApproval ──(durable approval commits)──▶ Approved ──▶ Superseded
+                                                    PendingApproval ──(durable approval rejects)──▶ Rejected
+```
+
+- **Generated**: an immutable content snapshot exists; not yet gate-eligible.
+- **PendingApproval**: reached only when the entity's Approval Policy requires maker-checker for `report_run_approve` — no hardcoded threshold.
+- **Approved**: gate-eligible. `POST /v1/report-runs/{id}/approve` is **one public command**: generation and approval must be performed by different actors — **the generator (maker) must not approve their own run**, enforced exactly as every M2–M4 approval command's maker/checker separation (`403 sod_exception_required` on a same-actor attempt). The approving checker performs review and approval in the same durable action: `reviewed_by`/`reviewed_at` and `approved_by`/`approved_at` are recorded atomically from that one act and may identify the same checker.
+- **Rejected**: terminal via the existing durable approval decline outcome — no separate M5 rejection endpoint. Satisfies no gate; the preparer may generate a new run.
+- **Superseded**: automatic and atomic the instant a different run for the identical reproducibility key — `(entity_id, report_type, basis, period_ref-or-as_of, filters)` — reaches `Approved`. The previously `Approved` run for that key (if any) transitions to `Superseded` in the same transaction. **Only a current, `Approved`, non-`Superseded` `ReportRun` may satisfy a Close Gate** (§13.11).
+
+**ReportRun schema:** `id` (`report_run_id`), `entity_id`, `report_type` (`trial_balance | general_ledger | profit_and_loss | balance_sheet | ar_ageing | ap_ageing | tax_summary | fx_revaluation | cash_view`), `period_ref`/`as_of`/`range` (exactly the field the report type needs), `basis` (`accrual` for every type except Cash View, always `cash`), `functional_currency`, `filters`, `layout_version` (P&L/BS), `classification_version` (P&L/BS), `policy_version` (Cash View → `CashViewPolicy`; AR/AP ageing → `AgeingBucketSet`), `source_data_watermark`, `content` (JSONB, byte-identical to the corresponding live `GET`), `content_hash` (lowercase SHA-256), `generated_by`/`generated_at`, `reviewed_by`/`reviewed_at`, `approved_by`/`approved_at`, `state`, `version`, `superseded_by_report_run_id`.
+
+The **source-data watermark** is the maximum `posted_at` of any qualifying posted fact included in the computed content, captured at generation time — it is what lets §13.11's `ReportingCloseGateProvider` detect that new postings exist after an `Approved` run's watermark and correctly report the gate `unmet` (stale evidence).
+
+```json
+{"request":{"report_type":"trial_balance","as_of":"2026-07-31","filters":{}},
+ "response":{"report_run":{"id":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d","report_type":"trial_balance","as_of":"2026-07-31","basis":"accrual","state":"Generated","version":1,"content_hash":"1f3d...af02","source_data_watermark":"2026-07-31T18:04:22.000Z"}}}
+```
+
+`POST /v1/report-runs` (`reporting.report_runs.generate`, `W0`) rules: `report_source_not_ready`, `missing_report_layout`, `missing_account_classification`, `unclassified_account`, `missing_ageing_bucket_set`, `missing_cash_view_policy`, `report_unbalanced`; generation is all-or-nothing — a failed validation creates no `ReportRun` row.
+
+```json
+{"request":{},"response":{"report_run":{"id":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d","state":"Approved","approved_by":"<uuid>","approved_at":"2026-08-01T09:12:00.000Z","reviewed_by":"<uuid>","reviewed_at":"2026-08-01T09:12:00.000Z","version":2}}}
+```
+
+`POST /v1/report-runs/{id}/approve` (`reporting.report_runs.approve`, `W1`) rules: `report_run_not_found`, `report_run_already_approved`, `report_run_rejected`, `sod_exception_required`. `GET /v1/report-runs/{id}` and `GET /v1/report-runs` (`reporting.report_runs.read`, `R`) follow the frozen pagination convention (§1).
+
+### 13.5 Trial Balance
+
+`GET /v1/reports/trial-balance` formalizes the existing, working M1 implementation (`LedgerReportService::trialBalance()`) unchanged, plus two additive fields: an optional `period_ref` adds `opening`/`movement` per row alongside the existing closing balance (SRS §5.13's "review Trial Balance" step); an optional `sbu` filter restricts summed `journal_lines` to matching `sbu_tag`. Zero-balance accounts, account ordering by `code`, and functional-currency-only presentation are unchanged from today. `totals.debit` exactly equals `totals.credit` by construction (Ledger's own `balanced_journal` invariant, read not re-derived).
+
+```json
+{"request_query":{"asOf":"2026-07-31","sbu":null,"limit":50,"cursor":null},
+ "response":{"as_of":"2026-07-31","rows":[{"account_id":"<uuid>","code":"1010","name":"Cash","debit":"12500.0000","credit":"0.0000"},{"account_id":"<uuid>","code":"4010","name":"Client Service Revenue","debit":"0.0000","credit":"12500.0000"}],"totals":{"debit":"12500.0000","credit":"12500.0000","balanced":true},"page":{"limit":50,"next_cursor":null}}}
+```
+
+### 13.6 General Ledger
+
+`GET /v1/reports/general-ledger` (§7.5) is reused **exactly** — required `account`/`range`, fixed `basis=accrual`, opening/closing balance semantics, Posted-only entries, stable order, cross-page running-balance continuation — plus two additive fields: optional `sbu` filter, and `reversal_of_entry_id` (nullable, copied from `journal_entries.reversal_of_entry_id`) on each `entries[]` item.
+
+```json
+{"request_query":{"account":"<uuid>","range":"2026-07-01..2026-07-31","sbu":null,"limit":50,"cursor":null},
+ "response":{"account":{"id":"<uuid>","code":"1010","name":"Cash","normal_balance":"debit"},"basis":"accrual","range":{"from":"2026-07-01","to":"2026-07-31"},"opening_balance":{"amount":"0.0000","currency":"BDT"},"entries":[{"journal_entry_id":"<uuid>","line_id":4101,"entry_date":"2026-07-15","reference":"BANK-TRANSFER-001","description":"Debit cash","debit":{"amount":"1000.0000","currency":"BDT"},"credit":null,"reversal_of_entry_id":null,"running_balance":{"amount":"1000.0000","currency":"BDT"}}],"closing_balance":{"amount":"1000.0000","currency":"BDT"},"page":{"limit":50,"next_cursor":null}}}
+```
+
+### 13.7 Profit and Loss (layout v1, frozen)
+
+**Approved computed-line skeleton:**
+
+| # | Line | Computation |
+|---|---|---|
+| 1 | Sales Revenue | sum of accounts classified `sales_revenue` |
+| 2 | Total Cost of Sales | sum of accounts classified `cost_of_sales` |
+| 3 | Gross Profit | `Sales Revenue − Total Cost of Sales` |
+| 4 | Gross Profit % | `Gross Profit ÷ Sales Revenue × 100`; `null` when Sales Revenue is `0.0000` |
+| 5 | Total Operating Expenses | sum of accounts classified `operating_expense` |
+| 6 | Operating Profit | `Gross Profit − Total Operating Expenses` |
+| 7 | Total Non-Operating Income | sum of accounts classified `non_operating_income` (net of `non_operating_expense`, if configured) |
+| 8 | Net Profit | `Operating Profit + Total Non-Operating Income` |
+| 9 | Net Profit % | `Net Profit ÷ Sales Revenue × 100`; `null` when Sales Revenue is `0.0000` |
+
+Approved classification groups: `sales_revenue`, `cost_of_sales`, `operating_expense`, `non_operating_income`, and, only if explicitly configured, `non_operating_expense` and `tax_or_other_configured_group`. **Account inclusion and row ordering come from the versioned `ReportLayout`/`AccountClassificationMap` below — accounts are never classified from name or code during report generation.** An account posted-to in the period with no effective classification entry fails generation with `422 unclassified_account`. Missing layout/classification configuration fails with `422 missing_report_layout`/`422 missing_account_classification`.
+
+```json
+{"report_layout":{"id":"<uuid>","report_type":"profit_and_loss","version":1,"sections":[
+  {"section_id":"sales_revenue","label":"Sales Revenue","classification_keys":["sales_revenue"],"order":1,"visible":true},
+  {"section_id":"total_cost_of_sales","label":"Total Cost of Sales","classification_keys":["cost_of_sales"],"order":2,"visible":true},
+  {"section_id":"gross_profit","label":"Gross Profit","computed_line":{"formula":"sales_revenue - total_cost_of_sales"},"order":3,"visible":true},
+  {"section_id":"gross_profit_pct","label":"Gross Profit %","computed_line":{"formula":"gross_profit / sales_revenue * 100","null_on_zero_denominator":true},"order":4,"visible":true,"percentage_of":"sales_revenue"},
+  {"section_id":"total_operating_expense","label":"Total Operating Expenses","classification_keys":["operating_expense"],"order":5,"visible":true},
+  {"section_id":"operating_profit","label":"Operating Profit","computed_line":{"formula":"gross_profit - total_operating_expense"},"order":6,"visible":true},
+  {"section_id":"total_non_operating_income","label":"Total Non-Operating Income","classification_keys":["non_operating_income","non_operating_expense"],"order":7,"visible":true},
+  {"section_id":"net_profit","label":"Net Profit","computed_line":{"formula":"operating_profit + total_non_operating_income"},"order":8,"visible":true},
+  {"section_id":"net_profit_pct","label":"Net Profit %","computed_line":{"formula":"net_profit / sales_revenue * 100","null_on_zero_denominator":true},"order":9,"visible":true,"percentage_of":"sales_revenue"}
+],"effective_from":"2026-07-01","effective_to":null}}
+```
+
+The existing Chart-of-Accounts class structure (SRS §5.10) may seed the first `AccountClassificationMap` version, but a frozen `ReportRun` always references the exact classification/layout versions actually used. **Cash-basis Profit and Loss is excluded from M5 MVP** — `basis=cash` on this endpoint returns `422 unsupported_basis`; Cash View (§13.10) is the dedicated derived management report instead.
+
+```json
+{"request_query":{"period":"2026-07","sbu":null,"basis":"accrual","compare_to":null},
+ "response":{"period_ref":"2026-07","basis":"accrual","layout_version":1,"classification_version":1,"lines":[{"section_id":"sales_revenue","label":"Sales Revenue","amount":{"amount":"12500.0000","currency":"BDT"}},{"section_id":"total_cost_of_sales","label":"Total Cost of Sales","amount":{"amount":"4000.0000","currency":"BDT"}},{"section_id":"gross_profit","label":"Gross Profit","amount":{"amount":"8500.0000","currency":"BDT"}},{"section_id":"gross_profit_pct","label":"Gross Profit %","percentage":"68.0000"},{"section_id":"total_operating_expense","label":"Total Operating Expenses","amount":{"amount":"3000.0000","currency":"BDT"}},{"section_id":"operating_profit","label":"Operating Profit","amount":{"amount":"5500.0000","currency":"BDT"}},{"section_id":"total_non_operating_income","label":"Total Non-Operating Income","amount":{"amount":"0.0000","currency":"BDT"}},{"section_id":"net_profit","label":"Net Profit","amount":{"amount":"5500.0000","currency":"BDT"}},{"section_id":"net_profit_pct","label":"Net Profit %","percentage":"44.0000"}]}}
+```
+
+### 13.8 Balance Sheet (layout v1, frozen)
+
+**Approved top-level structure:** Assets, Liabilities, Equity, Total Assets, Total Liabilities, Total Equity, Total Liabilities and Equity, Difference. **Invariant: Assets = Liabilities + Equity** — `Difference` must be exactly `0.0000`. **A non-zero `Difference` prevents approval**: `POST /v1/report-runs` fails with `422 report_unbalanced` and creates no `ReportRun` row.
+
+Current/non-current and other subgroup presentation come from the same versioned `AccountClassificationMap`/`ReportLayout` mechanism as §13.7, using Balance-Sheet-specific classification keys (e.g. `asset_current`, `asset_non_current`, `liability_current`, `liability_non_current`, `equity`) — **never inferred from account names, codes, dates, or balances**. Retained earnings and the current-period result are represented through explicit configured classifications (e.g. `3020 Retained Earnings`, `3030 Current-Year P&L`, SRS §5.10) and exact report-run references to the same period's Net Profit (§13.7 line 8) — never an independent recomputation.
+
+```json
+{"request_query":{"asOf":"2026-07-31","sbu":null,"compare_to":null},
+ "response":{"as_of":"2026-07-31","layout_version":1,"classification_version":1,"sections":[{"section_id":"assets","label":"Assets","rows":[{"code":"1010","name":"Cash","amount":{"amount":"12500.0000","currency":"BDT"}}],"subtotal":{"amount":"12500.0000","currency":"BDT"}},{"section_id":"liabilities","label":"Liabilities","rows":[],"subtotal":{"amount":"0.0000","currency":"BDT"}},{"section_id":"equity","label":"Equity","rows":[{"code":"3030","name":"Current-Year P&L","amount":{"amount":"12500.0000","currency":"BDT"}}],"subtotal":{"amount":"12500.0000","currency":"BDT"}}],"total_assets":{"amount":"12500.0000","currency":"BDT"},"total_liabilities":{"amount":"0.0000","currency":"BDT"},"total_equity":{"amount":"12500.0000","currency":"BDT"},"total_liabilities_and_equity":{"amount":"12500.0000","currency":"BDT"},"difference":{"amount":"0.0000","currency":"BDT"}}}
+```
+
+### 13.9 Receivables and Payables Ageing (default bucket set v1, frozen)
+
+**Approved default `AgeingBucketSet`, identical for Receivables and Payables:** `not_due` (due date after `asOf`), `overdue_0_30` (0–30 days overdue), `overdue_31_60` (31–60), `overdue_61_90` (61–90), `overdue_90_plus` (91+). Ageing is based on **contractual due date versus the report `asOf` date**. Only the document's remaining `open_balance` is aged (partial settlement reduces the aged balance). Unapplied party credit and negative/credit balances are displayed **separately** and are **never silently netted against individual documents**. The dashboard (SRS §5.1) may visually aggregate `overdue_61_90` and `overdue_90_plus` into one 60+ segment; **detailed AR/AP reports always retain the full five categories**.
+
+```json
+{"ageing_bucket_set":{"id":"<uuid>","version":1,"buckets":[
+  {"bucket_id":"not_due","label":"Not Due","lower_days":null,"upper_days":-1,"order":1},
+  {"bucket_id":"overdue_0_30","label":"0–30 Days Overdue","lower_days":0,"upper_days":30,"order":2},
+  {"bucket_id":"overdue_31_60","label":"31–60 Days Overdue","lower_days":31,"upper_days":60,"order":3},
+  {"bucket_id":"overdue_61_90","label":"61–90 Days Overdue","lower_days":61,"upper_days":90,"order":4},
+  {"bucket_id":"overdue_90_plus","label":"91+ Days Overdue","lower_days":91,"upper_days":null,"order":5}
+],"effective_from":"2026-07-01","effective_to":null}}
+```
+
+```json
+{"request_query":{"asOf":"2026-07-31","customer":null},
+ "response":{"as_of":"2026-07-31","bucket_set_version":1,"detail":[{"customer_id":"<uuid>","invoice_id":"<uuid>","document_number":"INV-1","due_date":"2026-07-10","open_balance":{"amount":"500.0000","currency":"BDT"},"bucket_id":"overdue_0_30"}],"summary":[{"customer_id":"<uuid>","totals_by_bucket":[{"bucket_id":"not_due","amount":{"amount":"0.0000","currency":"BDT"}},{"bucket_id":"overdue_0_30","amount":{"amount":"500.0000","currency":"BDT"}},{"bucket_id":"overdue_31_60","amount":{"amount":"0.0000","currency":"BDT"}},{"bucket_id":"overdue_61_90","amount":{"amount":"0.0000","currency":"BDT"}},{"bucket_id":"overdue_90_plus","amount":{"amount":"0.0000","currency":"BDT"}}],"credit_balances":{"amount":"0.0000","currency":"BDT"},"unapplied_credit":{"amount":"0.0000","currency":"BDT"},"total_open":{"amount":"500.0000","currency":"BDT"}}]}}
+```
+
+### 13.10 Tax and VAT Outputs
+
+`GET /v1/reports/tax-summary` (accrual only, SRS §5.11/§6.1) aggregates already-immutable `TaxSnapshot` records grouped by the already-frozen `return_box_mapping` keys (ADR-006; `app/Tax`). Output VAT and recoverable input VAT are summed by treatment/recoverability; withholding/AIT/VDS reads the already-frozen `Allocation.withholding`; `net_vat = output_vat − recoverable_input_vat` (ADR-006 consequence #2). No filing form, statutory rate, or jurisdiction rule is introduced — this report aggregates what Tax already validated at posting time.
+
+```json
+{"request_query":{"period":"2026-07"},
+ "response":{"period_ref":"2026-07","jurisdiction":"BD","output_vat":{"amount":"1875.0000","currency":"BDT"},"recoverable_input_vat":{"amount":"450.0000","currency":"BDT"},"net_vat":{"amount":"1425.0000","currency":"BDT"},"boxes":[{"return_box_key":"CONFIGURED_VALUE","amount":{"amount":"1875.0000","currency":"BDT"},"document_ids":["<uuid>"]}]}}
+```
+
+### 13.11 Cash View
+
+**Cash View is a derived, rebuildable management report — never a second Ledger, never presented as a statutory cash-basis Profit and Loss statement.** Frozen algorithm: (1) re-time eligible economic activity to its settlement date; (2) pro-rate by the settled proportion; (3) value foreign amounts using the exact settlement-date RateRecord; (4) exclude VAT from revenue/expense presentation; (5) report actual bank cash net of withholding; (6) preserve exact source, Settlement, document, TaxSnapshot, RateRecord, and SBU-allocation references on every derived row.
+
+Approved additional behavior: partially settled documents contribute only their settled proportion; unapplied party credit appears in reconciliation as `unapplied_cash`, never as revenue/expense; later credit application is attributed to the **original settlement date**, creating no second bank movement; refunds appear as negative cash movement on the refund date; reversals negate or rebuild the exact original derived rows from original references; SBU allocation follows the source document's frozen `sbu_allocations` (`Σ=1.0000`); missing source allocation, RateRecord, or policy fails safely (`422 missing_cash_view_policy` or the underlying dependency's own error). **Cash View creates no journals, postings, audit events, or business outbox events merely by being queried or rebuilt.**
+
+```json
+{"cash_view_policy":{"id":"<uuid>","version":1,
+  "recognition_date_source":"settlement_date","proration_basis":"settled_proportion","valuation_rate_source":"settlement_date_rate",
+  "vat_treatment":"excluded","withholding_treatment":"net_of_withholding_shown_separately",
+  "unapplied_credit_treatment":"reconciliation_only_not_revenue_or_expense","later_credit_application_treatment":"attributed_to_original_settlement_date",
+  "refund_treatment":"negative_movement_on_refund_date","reversal_treatment":"negate_or_rebuild_original_rows",
+  "sbu_allocation_treatment":"follows_source_document_exact_sum_allocation",
+  "rounding_scale":4,"rounding_mode":"CONFIGURED_MODE","effective_from":"2026-07-01","effective_to":null}}
+```
+
+```json
+{"request_query":{"period":"2026-07","sbu":null},
+ "response":{"period_ref":"2026-07","basis":"cash","policy_version":1,"cash_in_bank":{"amount":"9000.0000","currency":"BDT"},"collections":{"amount":"6000.0000","currency":"BDT"},"payments":{"amount":"3500.0000","currency":"BDT"},"net_cash_flow":{"amount":"2500.0000","currency":"BDT"},"withheld_excluded":{"amount":"400.0000","currency":"BDT"},"unapplied_cash":{"amount":"0.0000","currency":"BDT"},"refunds":{"amount":"0.0000","currency":"BDT"},"residual":{"amount":"0.0000","currency":"BDT"}}}
+```
+
+### 13.12 M5 CloseGateProvider implementation
+
+`ReportingCloseGateProvider` implements the unchanged `CloseGateProvider` v1 interface (§12.7) for `trial_balance_reviewed` → `report_type=trial_balance`, `profit_and_loss_approved` → `profit_and_loss`, `balance_sheet_approved` → `balance_sheet`, `vat_outputs_approved` → `tax_summary` (all `basis=accrual`). It never handles `bank_reconciliation_completed`, which remains M6-owned (`source_context="reconciliation"`).
+
+For the mapped `report_type`, the provider finds the current `Approved`, non-`Superseded` `ReportRun` for `(entityId, report_type, basis, periodRef-or-period-end-as_of)`. None found → `status="unmet"`, all evidence fields `null` (§12.7's honest-absence shape, unchanged). Found → the provider recomputes the latest qualifying posted-fact watermark at evaluation time; if it exceeds the run's `source_data_watermark`, the gate is `unmet` (stale evidence). Otherwise `status="satisfied"` and:
+
+```json
+{"gate_type":"profit_and_loss_approved","status":"satisfied","source_context":"reporting","source_reference":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d","produced_at":"2026-08-01T09:00:00.000Z","reviewed_by":"<uuid>","reviewed_at":"2026-08-01T09:12:00.000Z","evidence_version":2,"evidence_hash":"1f3d...af02"}
+```
+
+`source_reference` = `ReportRun.id`; `produced_at` = `ReportRun.generated_at`; `reviewed_by`/`reviewed_at` = `ReportRun.reviewed_by`/`reviewed_at`; `evidence_version` = `ReportRun.version`; `evidence_hash` = `ReportRun.content_hash` — a direct, lossless field mapping, matching §12.7's example exactly. A `Superseded`, `Rejected`, or still-`Generated`/`PendingApproval` run is never selected — it is invisible to the lookup by construction.
+
+### 13.13 Export
+
+**PDF and CSV export are included in M5; XLSX is excluded and deferred.** `GET /v1/report-runs/{id}/export?format=pdf|csv` (`reporting.report_runs.read`, `R`). Export is produced **only** from the immutable `ReportRun.content` snapshot and **never reruns the underlying report calculation**. Output identifies at minimum `entity_id`, `report_type`, `filters`, `basis`, `period_ref`/`as_of`, `generated_at`, `content_hash`, `layout_version`, `classification_version` (where applicable), and `state`. Export creates no accounting mutation and no business event. Unauthorized/cross-entity `id` returns `404 not_found`; `format` values other than `pdf`/`csv` (including `xlsx`) return `400 validation`. **A stale or superseded run remains exportable for historical audit but its export must visibly state its `state`.** Hard Close evidence still requires a current `Approved`, non-`Superseded` run (§13.12) regardless of any export.
+
+### 13.14 Reporting/Ledger context boundary
+
+The existing Trial Balance, General Ledger, and account-balance implementation is **not** migrated or rewritten. Ledger continues to own Ledger facts and its established read contracts (`LedgerReportService`, `LedgerAccount`/`JournalLine`/`JournalEntry`). Reporting consumes them through explicit adapters (`TrialBalanceQuery`/`GeneralLedgerQuery` implementations that call Ledger's existing service in-process) and **must not read Ledger tables directly where an approved query contract already exists**. Every genuinely new M5 structure — `ReportRun`s, layouts, classifications, ageing, Cash View, and Close-Gate evidence — is Reporting-owned outright. A future context extraction requires a separate governance decision.
+
+### 13.15 Stable errors
+
+New `details.rule` values, using the frozen shared envelope (§2): `missing_report_layout` (422), `missing_account_classification` (422), `unclassified_account` (422), `missing_ageing_bucket_set` (422), `missing_cash_view_policy` (422), `report_source_not_ready` (422), `report_unbalanced` (422), `report_run_not_approved` (422), `report_run_already_approved` (422), `report_run_rejected` (422), `report_run_superseded` (422), `unsupported_basis` (422). `report_run_stale` surfaces as an `unmet` gate, never a client-facing error (§13.12).
+
+### 13.16 Traceability
+
+| Amendment rule | Frozen source |
+|---|---|
+| No cash-basis P&L; Cash View is the derived management report | ADR-001 (locked algorithm + `M5-GOV-001` MVP-scope resolution) |
+| Assets = Liabilities + Equity | Accounting identity; `M5-GOV-001` |
+| Trial Balance/General Ledger unchanged, Ledger-owned | §7.5, §8.3.4; `M5-GOV-001` item 7 |
+| `CloseGateProvider` v1 interface unchanged | §12.7 (M4) |
+| No account classification inferred from name/code | `M5-GOV-001` items 2–3 |
+| Five-bucket ageing default, versioned | `M5-GOV-001` item 4 |
+| One-step checker review/approval, generator cannot self-approve | `M5-GOV-001` item 5 |
+| PDF/CSV export, XLSX excluded | `M5-GOV-001` item 6 |
+
+M5 introduces no M6 Reconciliation endpoint, no consolidation/CTA behavior, no XLSX export, no hardcoded ageing bucket outside versioned configuration, no inferred account classification, and no Hard Close bypass.

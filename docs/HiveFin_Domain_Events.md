@@ -278,6 +278,52 @@ Period transition v2 payloads contain period UUID/ref, from/to states, versions 
 }
 ```
 
+### Reporting (`M5-GOV-001`)
+| Event | Producer | Trigger | Payload | Consumers | Effect |
+|---|---|---|---|---|---|
+| `ReportRunGenerated` | ReportRun | `POST /v1/report-runs` | reportRunId, reportType, entityId, periodRef/asOf, basis, sourceDataWatermark, contentHash | Audit | evidence snapshot created |
+| `ReportRunApproved` | ReportRun | `POST /v1/report-runs/{id}/approve` commits | reportRunId, approvedBy, reviewedBy, evidenceVersion, evidenceHash | Audit | gate-eligible |
+| `ReportRunRejected` | ReportRun | durable approval declines | reportRunId, rejectedBy, reason | Audit | not gate-eligible |
+| `ReportRunSuperseded` | ReportRun | a later run for the same reproducibility key is approved | reportRunId, supersededByReportRunId | Audit | prior evidence retired |
+
+None of the four is subscribed to by Period — `CloseGateProvider` remains a **pull** contract (Period calls `evaluate()` synchronously at Hard Close time, §12.7), unchanged by this amendment. Export (`GET /v1/report-runs/{id}/export`) produces no event — it is a pure read of already-immutable `content`.
+
+#### M5 ReportRun event schemas
+
+All events use the frozen envelope (UUID event ID, canonical name, integer version, UTC occurred time, entity ID, correlation ID, causation ID, aggregate ID/version, payload), unchanged.
+
+```json
+{
+  "event_id":"9c1e5c2a-9d0e-4c8a-9c3a-1f9e7b0a2d3c",
+  "event_name":"ReportRunGenerated",
+  "event_version":1,
+  "occurred_at":"2026-07-31T18:04:22.000Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d",
+  "aggregate_id":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d",
+  "aggregate_version":1,
+  "payload":{"report_type":"trial_balance","basis":"accrual","as_of":"2026-07-31","source_data_watermark":"2026-07-31T18:04:22.000Z","content_hash":"1f3d...af02"}
+}
+```
+
+```json
+{
+  "event_id":"4b8a6d1f-2e3c-4a9b-8d7e-6c5a4b3d2e1f",
+  "event_name":"ReportRunApproved",
+  "event_version":1,
+  "occurred_at":"2026-08-01T09:12:00.000Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"4b8a6d1f-2e3c-4a9b-8d7e-6c5a4b3d2e1f",
+  "aggregate_id":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d",
+  "aggregate_version":2,
+  "payload":{"approved_by":"1b8f3c2f-4e62-4fa9-a924-77848017a9a6","reviewed_by":"1b8f3c2f-4e62-4fa9-a924-77848017a9a6","evidence_version":2,"evidence_hash":"1f3d...af02"}
+}
+```
+
+`ReportRunRejected` and `ReportRunSuperseded` follow the same envelope with their §"Payload" fields above; no separate schema is introduced for either.
+
 ### Identity & Access
 | Event | Producer | Trigger | Payload | Consumers | Effect |
 |---|---|---|---|---|---|
@@ -408,6 +454,9 @@ Soft Close → `RunRevaluation` → `UnrealisedFXRevalued` → Ledger posts adju
 
 **G. Migration cutover**
 `RunDryRun` (↺, no post) → `ExecuteFinalMigration` invokes each target's **import application services** (AP-001) → `ConversionPosted`.
+
+**H. ReportRun generation and approval (`M5-GOV-001`)**
+`GenerateReportRun` → one transaction: compute and freeze `content`/`content_hash`/`source_data_watermark`, state `Generated` → commit → emit `ReportRunGenerated` → Audit. `ApproveReportRun` (durable four-eyes where configured; generator cannot approve their own run) → one transaction: state `Approved`, `reviewed_by`/`approved_by` set atomically, and — only if a prior `Approved` run exists for the identical reproducibility key — that prior run moves to `Superseded` in the same transaction → commit → emit `ReportRunApproved` (+ `ReportRunSuperseded` when applicable) → Audit. Period never subscribes to these events; `CloseGateProvider.evaluate()` pulls the current `Approved` run synchronously at Hard Close time (§"Period & Close" above).
 
 ---
 

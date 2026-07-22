@@ -114,17 +114,47 @@ The repository loads only Period-owned state, transition history, copied accepte
 
 ---
 
-## 3. Reporting — Query Interfaces (read side, no aggregates)
+## 3. Reporting — Query Interfaces and ReportRun (`M5-GOV-001`)
 
-Persistence-agnostic query contracts returning read-model DTOs (built from events/projections):
+Persistence-agnostic query contracts returning read-model DTOs (built from events/projections, or from Ledger's own read contracts where noted):
 ```
-TrialBalanceQuery(entityId, asOf, basis)          GeneralLedgerQuery(accountId, dateRange)
-ProfitAndLossQuery(entityId, period, sbu, basis)  BalanceSheetQuery(entityId, asOf)
-ARAgeingQuery / APAgeingQuery(entityId, asOf)      TaxSummaryQuery(entityId, period)   // accrual only
-CashViewQuery(entityId, period)                    FXRevaluationQuery(entityId, period)
-AccountBalanceQuery(accountId, asOf)               // serves the derived balance
+TrialBalanceQuery(entityId, asOf, periodRef?, sbu?)              // adapter over Ledger's existing LedgerReportService — not migrated (§3.1)
+GeneralLedgerQuery(entityId, accountId, dateRange, sbu?, cursor, limit)  // adapter over Ledger's existing LedgerReportService — not migrated (§3.1)
+ProfitAndLossQuery(entityId, periodRef, sbu?, basis, compareTo?)  // Reporting-owned
+BalanceSheetQuery(entityId, asOf, sbu?, compareTo?)               // Reporting-owned
+ARAgeingQuery(entityId, asOf, customerId?)                        // Reporting-owned
+APAgeingQuery(entityId, asOf, vendorId?)                          // Reporting-owned
+TaxSummaryQuery(entityId, periodRef)                              // Reporting-owned; accrual only
+FXRevaluationQuery(entityId, periodRef)                           // Reporting-owned
+CashViewQuery(entityId, periodRef, sbu?)                          // Reporting-owned
+AccountBalanceQuery(accountId, asOf)               // serves the derived balance; Ledger-owned, unchanged
 ```
-No writes; no domain invariants; cash view via the single documented algorithm (ADR-001).
+No writes; no domain invariants beyond `ReportRun` below; cash view via the single documented algorithm (ADR-001, resolved by `M5-GOV-001`).
+
+### 3.1 Reporting/Ledger context boundary
+
+`TrialBalanceQuery` and `GeneralLedgerQuery` are **adapters**, not new computations: they call Ledger's already-implemented, tested `LedgerReportService::trialBalance()`/`generalLedger()` in-process and return its result unchanged. **This proposal amendment does not migrate or rewrite that implementation.** Ledger continues to own Ledger facts and these two read contracts; Reporting must not read `journal_lines`/`ledger_accounts` directly where this adapter already exists. Every other query above, plus `ReportRun` and its configuration providers below, is Reporting-owned outright. A future context extraction (moving Trial Balance/General Ledger fully into Reporting) requires a separate governance decision.
+
+### 3.2 ReportRun (Reporting's one write aggregate)
+
+```text
+ReportRunRepository
+  GetById(reportRunId): ReportRun|null
+  AddGenerated(run): void
+  CommitApproval(run, expectedVersion): void            // sets Approved + supersession of the prior Approved run for the same key, one UoW
+  CommitRejection(run, expectedVersion): void
+  Search(entityId, filters, cursor, limit): ReportRunPage
+  FindCurrentApproved(entityId, reportType, basis, periodKey): ReportRun|null   // Close-Gate lookup (API Contracts §13.12)
+
+ReportLayoutProvider           GetEffective(entityId|global, reportType, atDate): ReportLayout|null
+AccountClassificationProvider  GetEffective(entityId|global, atDate): AccountClassificationMap|null
+AgeingBucketProvider           GetEffective(entityId|global, atDate): AgeingBucketSet|null
+CashViewPolicyProvider         GetEffective(entityId|global, atDate): CashViewPolicy|null
+
+ReportingCloseGateProvider implements CloseGateProvider   // Period-owned interface, unchanged (API Contracts §12.7, §13.12)
+```
+
+`ReportRunRepository` implements no business rule beyond the version-guarded conditional save and the atomic supersession commit; it returns no ORM model to another context. `CommitApproval` enforces that the generator (maker) cannot also be the approver (checker) — the same maker/checker separation every M2–M4 approval command already uses.
 
 ---
 
@@ -147,6 +177,8 @@ No writes; no domain invariants; cash view via the single documented algorithm (
 | Party-credit application/refund/reversal | Allocation + exact CreditTranche consumption/restoration facts + projection + document ApplySettlement or bank movement + JournalEntry + FX result, when foreign | Settlement app service |
 | Credit/debit note post/disposition/reversal | Note + exact document/CreditTranche effects + JournalEntry/FX result when applicable | Receivables/Payables app service through owning contracts |
 | Period close | AccountingPeriod + immutable accepted close evidence + atomic VAT state + audit/outbox | Period app service |
+| ReportRun generation | ReportRun (Generated) + audit/outbox | Reporting app service |
+| ReportRun approval | ReportRun (Approved, `reviewed_by`/`approved_by` set atomically) + supersession of the prior Approved run for the same key + audit/outbox | Reporting app service |
 | FX revaluation | RevaluationRun + JournalEntry(s) | FX/Period app service |
 | Reconciliation entry | BankReconciliation + (requested) JournalEntry | Reconciliation app service |
 | Migration final post | StagingBatch + target import services (idempotent, chunkable) | Migration app service |

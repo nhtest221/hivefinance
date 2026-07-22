@@ -105,8 +105,11 @@
 - **sequence** — `series_prefix`, `scope(entity_id, fiscal_year)`, `current_value`, `gapless`, `reset_policy`. **Serialized atomic increment** on draw (row lock / atomic update). Unique(series_prefix, scope).
 - **voided_number** — `series_prefix`, `scope`, `value` (used-and-voided, never reused).
 
-### reporting (read models)
-- Projection tables / materialized views: `trial_balance_mv`, `gl_detail_mv`, `pnl_mv`, `balance_sheet_mv`, `ageing_mv`, `tax_summary_mv`, `cash_view_mv`, maintained from domain events; fully rebuildable from the write side.
+### reporting (`M5-GOV-001`)
+- **report_runs** — `entity_id`, `report_type`, `period_ref(nullable)`, `as_of(nullable)`, `range(nullable, general_ledger only)`, `basis`, `functional_currency`, `filters(json)`, `layout_version(nullable)`, `classification_version(nullable)`, `policy_version(nullable)`, `source_data_watermark`, `content(jsonb)`, `content_hash`, `generated_by`, `generated_at`, `reviewed_by(nullable)`, `reviewed_at(nullable)`, `approved_by(nullable)`, `approved_at(nullable)`, `state`, `version`, `superseded_by_report_run_id(nullable)`. `content`/`content_hash`/`source_data_watermark` are set once at `Generated` and never altered; only `state`/`version`/approval/supersession fields mutate thereafter. Index `(entity_id, report_type, basis, period_ref, state)` and `(entity_id, report_type, basis, as_of, state)` for the current-approved-run lookup (API Contracts §13.4, §13.12).
+- **report_layout_versions**, **account_classification_versions**, **ageing_bucket_set_versions**, **cash_view_policy_versions** — one generic effective-dated, versioned, append-only table per configuration type (new version, never edit-in-place — mirrors `tax_code_versions`' established pattern). Index `(entity_id_or_global, effective_from)`.
+- Trial Balance, General Ledger, Profit and Loss, Balance Sheet, Ageing, Tax Summary, and Cash View are **rebuildable live queries, not persisted projection tables** — Trial Balance and General Ledger read Ledger's own `journal_lines`/`ledger_accounts` through Reporting's adapter (API Contracts §13.14, unchanged from today); the remaining reports are computed on demand from `JournalLine`-derived classified figures, `TaxSnapshot`-bearing document lines, and `Allocation`/`AllocationLink`. `report_runs.content` is the only persisted report body, and only for `Approved` evidence — no `trial_balance_mv`/`gl_detail_mv`/`pnl_mv`/`balance_sheet_mv`/`ageing_mv`/`tax_summary_mv`/`cash_view_mv` materialized-view tables exist.
+- No cross-context foreign key exists from `report_runs` to Ledger/Receivables/Payables/Settlement rows (AP-001 — UUIDs only).
 
 ### cross-cutting
 - **audit_log** (append-only, immutable), **outbox** (per context).
@@ -121,6 +124,7 @@
 - **Posted immutability:** enforced by column-level update restrictions/triggers on posted rows (only whitelisted fields mutable).
 - **Note disposition:** conditional note-version updates and named CreditTranche versions protect concurrent disposition. DB checks prohibit negative categories and enforce `posted_amount = applied_amount + refunded_amount + held_remaining_amount + undisposed_amount`; disposition/restoration rows append and never rewrite history.
 - **Period transitions:** the version guard prevents concurrent state changes. Hard Close stores an immutable accepted evidence set and atomically changes the Period to `HardClosed` and VAT to locked. An absent or unmet M5/M6 provider stores no business row and causes `422 close_gate_unmet`; there is no bypass or standalone VAT-lock write.
+- **ReportRun approval and supersession (`M5-GOV-001`):** the version guard protects `ApproveReportRun`; `content`/`content_hash`/`source_data_watermark` are immutable once `Generated`. Approving a run and superseding the prior `Approved` run for the identical reproducibility key commit atomically in one transaction — a Close Gate never observes more than one current `Approved` run per key.
 
 ---
 
