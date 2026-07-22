@@ -25,6 +25,8 @@ use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Payables\Application\BillApprovalCommandHandler;
 use App\Payables\Application\DebitNoteApprovalCommandHandler;
+use App\Payables\Application\DebitNoteDispositionApprovalCommandHandler;
+use App\Payables\Application\DebitNoteDispositionService;
 use App\Payables\Application\DebitNoteQuery;
 use App\Payables\Application\DebitNoteRepository;
 use App\Payables\Application\DebitNoteService;
@@ -39,6 +41,8 @@ use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;
 use App\Period\Infrastructure\UnavailableCloseGateProvider;
 use App\Receivables\Application\CreditNoteApprovalCommandHandler;
+use App\Receivables\Application\CreditNoteDispositionApprovalCommandHandler;
+use App\Receivables\Application\CreditNoteDispositionService;
 use App\Receivables\Application\CreditNoteQuery;
 use App\Receivables\Application\CreditNoteRepository;
 use App\Receivables\Application\CreditNoteService;
@@ -108,5 +112,11 @@ final class AppServiceProvider extends ServiceProvider
         }
         $registry->register(new CreditNoteApprovalCommandHandler($this->app->make(CreditNoteService::class), 'post'));
         $registry->register(new DebitNoteApprovalCommandHandler($this->app->make(DebitNoteService::class), 'post'));
+        $creditNoteDisposition = $this->app->make(CreditNoteDispositionService::class);
+        $debitNoteDisposition = $this->app->make(DebitNoteDispositionService::class);
+        foreach (['hold', 'apply', 'refund', 'reverse'] as $type) {
+            $registry->register(new CreditNoteDispositionApprovalCommandHandler($creditNoteDisposition, $type));
+            $registry->register(new DebitNoteDispositionApprovalCommandHandler($debitNoteDisposition, $type));
+        }
     }
 }

@@ -91,6 +91,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show'])->name('credit-notes.show');
     Route::get('/credit-notes', [CreditNoteController::class, 'index'])->name('credit-notes.index');
     Route::post('/credit-notes/{id}/post', [CreditNoteController::class, 'post'])->name('credit-notes.post');
+    Route::post('/credit-notes/{id}/apply', [CreditNoteController::class, 'apply'])->name('credit-notes.apply');
+    Route::post('/credit-notes/{id}/hold', [CreditNoteController::class, 'hold'])->name('credit-notes.hold');
+    Route::post('/credit-notes/{id}/refund', [CreditNoteController::class, 'refund'])->name('credit-notes.refund');
+    Route::post('/credit-notes/{id}/reverse', [CreditNoteController::class, 'reverse'])->name('credit-notes.reverse');
 
     Route::post('/vendors', [VendorController::class, 'store'])->name('vendors.store');
     Route::patch('/vendors/{id}', [VendorController::class, 'update'])->name('vendors.update');
@@ -111,6 +115,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/debit-notes/{id}', [DebitNoteController::class, 'show'])->name('debit-notes.show');
     Route::get('/debit-notes', [DebitNoteController::class, 'index'])->name('debit-notes.index');
     Route::post('/debit-notes/{id}/post', [DebitNoteController::class, 'post'])->name('debit-notes.post');
+    Route::post('/debit-notes/{id}/apply', [DebitNoteController::class, 'apply'])->name('debit-notes.apply');
+    Route::post('/debit-notes/{id}/hold', [DebitNoteController::class, 'hold'])->name('debit-notes.hold');
+    Route::post('/debit-notes/{id}/refund', [DebitNoteController::class, 'refund'])->name('debit-notes.refund');
+    Route::post('/debit-notes/{id}/reverse', [DebitNoteController::class, 'reverse'])->name('debit-notes.reverse');
 
     Route::post('/receipts', [SettlementController::class, 'receipt'])->name('settlement.receipts.store');
     Route::post('/payments', [SettlementController::class, 'payment'])->name('settlement.payments.store');

@@ -19,7 +19,8 @@ use Override;
  * @property string $remaining_functional_amount
  * @property string|null $source_rate_record_id
  * @property array<string,mixed>|null $source_exchange_rate_reference
- * @property string $source_allocation_id
+ * @property string|null $source_allocation_id
+ * @property string|null $source_note_id
  * @property string|null $source_reference
  * @property int $version
  */
@@ -29,7 +30,7 @@ final class CreditTranche extends Model
 
     protected $table = 'settlement_credit_tranches';
 
-    protected $fillable = ['entity_id', 'party_type', 'party_id', 'currency', 'original_amount', 'remaining_amount', 'original_functional_amount', 'remaining_functional_amount', 'source_rate_record_id', 'source_exchange_rate_reference', 'source_allocation_id', 'source_reference', 'version'];
+    protected $fillable = ['entity_id', 'party_type', 'party_id', 'currency', 'original_amount', 'remaining_amount', 'original_functional_amount', 'remaining_functional_amount', 'source_rate_record_id', 'source_exchange_rate_reference', 'source_allocation_id', 'source_note_id', 'source_reference', 'version'];
 
     #[Override]
     protected function casts(): array

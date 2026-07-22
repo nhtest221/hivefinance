@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Receivables;
 
+use App\Http\Requests\Documents\M4ANoteDispositionRequest;
 use App\Http\Requests\Documents\M4ANoteRequest;
+use App\Receivables\Application\CreditNoteDispositionService;
 use App\Receivables\Application\CreditNoteService;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentQuery;
@@ -28,6 +30,26 @@ final class CreditNoteController
         }
 
         return $this->response($s->post($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function apply(M4ANoteDispositionRequest $r, CreditNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->apply($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function hold(M4ANoteDispositionRequest $r, CreditNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->hold($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function refund(M4ANoteDispositionRequest $r, CreditNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->refund($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function reverse(M4ANoteDispositionRequest $r, CreditNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->reverse($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
     }
 
     public function show(Request $r, CreditNoteService $s, string $id): JsonResponse

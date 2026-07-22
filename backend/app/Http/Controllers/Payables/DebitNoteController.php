@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Payables;
 
+use App\Http\Requests\Documents\M4ANoteDispositionRequest;
 use App\Http\Requests\Documents\M4ANoteRequest;
+use App\Payables\Application\DebitNoteDispositionService;
 use App\Payables\Application\DebitNoteService;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentQuery;
@@ -28,6 +30,26 @@ final class DebitNoteController
         }
 
         return $this->response($s->post($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function apply(M4ANoteDispositionRequest $r, DebitNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->apply($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function hold(M4ANoteDispositionRequest $r, DebitNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->hold($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function refund(M4ANoteDispositionRequest $r, DebitNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->refund($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
+    }
+
+    public function reverse(M4ANoteDispositionRequest $r, DebitNoteDispositionService $s, string $id): JsonResponse
+    {
+        return $this->response($s->reverse($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
     }
 
     public function show(Request $r, DebitNoteService $s, string $id): JsonResponse
