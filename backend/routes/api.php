@@ -84,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/invoices/{id}', [InvoiceController::class, 'show'])->name('invoices.show');
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::post('/invoices/{id}/issue', [InvoiceController::class, 'issue'])->name('invoices.issue');
+    Route::post('/invoices/{id}/void', [InvoiceController::class, 'void'])->name('invoices.void');
     Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
 
     Route::post('/credit-notes', [CreditNoteController::class, 'store'])->name('credit-notes.store');
@@ -106,6 +107,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/bills/{id}', [BillController::class, 'show'])->name('bills.show');
     Route::get('/bills', [BillController::class, 'index'])->name('bills.index');
     Route::post('/bills/{id}/approve', [BillController::class, 'approve'])->name('bills.approve');
+    Route::post('/bills/{id}/void', [BillController::class, 'void'])->name('bills.void');
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
     Route::get('/expenses/{id}', [ExpenseController::class, 'show'])->name('expenses.show');
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');

@@ -70,7 +70,10 @@ function createVendor($test, User $actor, Entity $entity, array $overrides = [])
 }
 
 it('implements exactly the approved 24 M2 public routes', function (): void {
-    $routes = collect(app('router')->getRoutes()->getRoutes())->map(fn ($route): string => implode('|', $route->methods()).' /'.$route->uri())->filter(fn (string $route): bool => preg_match('#/(customers|invoices|vendors|bills|expenses)(?:/|$)#', $route) === 1)->values();
+    // M4-GOV-001 adds /invoices/{id}/void and /bills/{id}/void under these same path
+    // prefixes; those are new, frozen M4 routes (counted by the M4 route-inventory test),
+    // not part of M2's frozen 24 — excluded here so this stays a pure M2 regression check.
+    $routes = collect(app('router')->getRoutes()->getRoutes())->map(fn ($route): string => implode('|', $route->methods()).' /'.$route->uri())->filter(fn (string $route): bool => preg_match('#/(customers|invoices|vendors|bills|expenses)(?:/|$)#', $route) === 1 && ! str_contains($route, '/void'))->values();
     expect($routes)->toHaveCount(24)
         ->and($routes->filter(fn (string $route): bool => str_contains($route, 'attachment')))->toHaveCount(0);
 });

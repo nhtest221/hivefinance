@@ -24,6 +24,8 @@ use App\Ledger\Infrastructure\EloquentSettlementPostingService;
 use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Payables\Application\BillApprovalCommandHandler;
+use App\Payables\Application\BillVoidApprovalCommandHandler;
+use App\Payables\Application\BillVoidService;
 use App\Payables\Application\DebitNoteApprovalCommandHandler;
 use App\Payables\Application\DebitNoteDispositionApprovalCommandHandler;
 use App\Payables\Application\DebitNoteDispositionService;
@@ -46,12 +48,16 @@ use App\Receivables\Application\CreditNoteDispositionService;
 use App\Receivables\Application\CreditNoteQuery;
 use App\Receivables\Application\CreditNoteRepository;
 use App\Receivables\Application\CreditNoteService;
+use App\Receivables\Application\InvoiceVoidApprovalCommandHandler;
+use App\Receivables\Application\InvoiceVoidService;
 use App\Receivables\Application\OpenReceivableService;
 use App\Receivables\Infrastructure\EloquentCreditNoteQuery;
 use App\Receivables\Infrastructure\EloquentCreditNoteRepository;
 use App\Receivables\Infrastructure\EloquentOpenReceivableService;
+use App\Settlement\Application\DocumentActivityQuery;
 use App\Settlement\Application\SettlementApprovalCommandHandler;
 use App\Settlement\Application\SettlementService;
+use App\Settlement\Infrastructure\EloquentDocumentActivityQuery;
 use App\Tax\Application\TaxApprovalCommandHandler;
 use App\Tax\Application\TaxCommandExecutor;
 use Illuminate\Support\ServiceProvider;
@@ -78,6 +84,7 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(CreditNoteQuery::class, EloquentCreditNoteQuery::class);
         $this->app->bind(DebitNoteRepository::class, EloquentDebitNoteRepository::class);
         $this->app->bind(DebitNoteQuery::class, EloquentDebitNoteQuery::class);
+        $this->app->bind(DocumentActivityQuery::class, EloquentDocumentActivityQuery::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
         $this->app->singleton(CloseGateProviderRegistry::class, function (): CloseGateProviderRegistry {
             $registry = new CloseGateProviderRegistry;
@@ -118,5 +125,7 @@ final class AppServiceProvider extends ServiceProvider
             $registry->register(new CreditNoteDispositionApprovalCommandHandler($creditNoteDisposition, $type));
             $registry->register(new DebitNoteDispositionApprovalCommandHandler($debitNoteDisposition, $type));
         }
+        $registry->register(new InvoiceVoidApprovalCommandHandler($this->app->make(InvoiceVoidService::class)));
+        $registry->register(new BillVoidApprovalCommandHandler($this->app->make(BillVoidService::class)));
     }
 }
