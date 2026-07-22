@@ -54,6 +54,16 @@ use App\Receivables\Application\OpenReceivableService;
 use App\Receivables\Infrastructure\EloquentCreditNoteQuery;
 use App\Receivables\Infrastructure\EloquentCreditNoteRepository;
 use App\Receivables\Infrastructure\EloquentOpenReceivableService;
+use App\Reporting\Application\AccountClassificationProvider;
+use App\Reporting\Application\AgeingBucketProvider;
+use App\Reporting\Application\CashViewPolicyProvider;
+use App\Reporting\Application\ReportLayoutProvider;
+use App\Reporting\Application\ReportRunRepository;
+use App\Reporting\Infrastructure\EloquentAccountClassificationProvider;
+use App\Reporting\Infrastructure\EloquentAgeingBucketProvider;
+use App\Reporting\Infrastructure\EloquentCashViewPolicyProvider;
+use App\Reporting\Infrastructure\EloquentReportLayoutProvider;
+use App\Reporting\Infrastructure\EloquentReportRunRepository;
 use App\Settlement\Application\DocumentActivityQuery;
 use App\Settlement\Application\SettlementApprovalCommandHandler;
 use App\Settlement\Application\SettlementService;
@@ -85,6 +95,11 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(DebitNoteRepository::class, EloquentDebitNoteRepository::class);
         $this->app->bind(DebitNoteQuery::class, EloquentDebitNoteQuery::class);
         $this->app->bind(DocumentActivityQuery::class, EloquentDocumentActivityQuery::class);
+        $this->app->bind(ReportRunRepository::class, EloquentReportRunRepository::class);
+        $this->app->bind(ReportLayoutProvider::class, EloquentReportLayoutProvider::class);
+        $this->app->bind(AccountClassificationProvider::class, EloquentAccountClassificationProvider::class);
+        $this->app->bind(AgeingBucketProvider::class, EloquentAgeingBucketProvider::class);
+        $this->app->bind(CashViewPolicyProvider::class, EloquentCashViewPolicyProvider::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
         $this->app->singleton(CloseGateProviderRegistry::class, function (): CloseGateProviderRegistry {
             $registry = new CloseGateProviderRegistry;
