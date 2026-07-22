@@ -28,4 +28,22 @@ final class EloquentEntityReferenceQuery implements EntityReferenceQuery
 
         return (string) $year;
     }
+
+    public function fiscalYearStartDate(string $entityId, string $date): ?string
+    {
+        $entity = Entity::query()->find($entityId);
+        if (! $entity instanceof Entity) {
+            return null;
+        }
+        $day = Carbon::createFromFormat('Y-m-d', $date, 'UTC');
+        if ($day === null) {
+            return null;
+        }
+        $start = $day->copy()->setDate($day->year, (int) $entity->fiscal_year_start_month, (int) $entity->fiscal_year_start_day);
+        if ($day->lt($start)) {
+            $start = $start->copy()->subYear();
+        }
+
+        return $start->toDateString();
+    }
 }

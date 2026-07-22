@@ -7,11 +7,12 @@ use App\Ledger\Domain\DecimalAmount;
 use App\Models\Ledger\JournalLine;
 use App\Models\Ledger\LedgerAccount;
 use App\Models\User;
+use App\Period\Application\PeriodQuery;
 use Illuminate\Database\Eloquent\Collection;
 
 final readonly class LedgerReportService
 {
-    public function __construct(private LedgerAuthorizationService $authorization, private EntityReferenceQuery $entities)
+    public function __construct(private LedgerAuthorizationService $authorization, private EntityReferenceQuery $entities, private PeriodQuery $periods)
     {
         // Promoted readonly dependencies keep the application service immutable.
     }
@@ -39,7 +40,7 @@ final readonly class LedgerReportService
         ]);
     }
 
-    public function generalLedger(User $actor, string $entityId, string $accountId, ?string $from, ?string $to, int $limit = 50, ?string $cursor = null): LedgerActionResult
+    public function generalLedger(User $actor, string $entityId, string $accountId, ?string $from, ?string $to, int $limit = 50, ?string $cursor = null, ?string $sbu = null): LedgerActionResult
     {
         $permission = 'ledger.reports.read';
         if ($this->authorization->can($actor, $entityId, $permission) === false) {
@@ -62,6 +63,7 @@ final readonly class LedgerReportService
             ->with('journalEntry')
             ->where('journal_lines.entity_id', $entityId)
             ->where('journal_lines.account_id', $accountId)
+            ->when($sbu !== null, fn ($query) => $query->where('journal_lines.sbu_tag', $sbu))
             ->whereHas('journalEntry', fn ($query) => $query->where('state', 'posted')->where('posted_at', '<=', $boundary)
                 ->when($from !== null, fn ($query) => $query->whereDate('entry_date', '>=', $from))
                 ->when($to !== null, fn ($query) => $query->whereDate('entry_date', '<=', $to)))
@@ -70,7 +72,7 @@ final readonly class LedgerReportService
             ->select('journal_lines.*')
             ->get();
 
-        $opening = $this->sumAccount($entityId, $accountId, $from === null ? null : date('Y-m-d', strtotime($from.' -1 day')));
+        $opening = $this->sumAccount($entityId, $accountId, $from === null ? null : date('Y-m-d', strtotime($from.' -1 day')), $sbu);
         $running = $opening;
         $presented = $lines->map(function (JournalLine $line) use (&$running): array {
             $running = $running->add(DecimalAmount::fromString($line->debit))->subtract(DecimalAmount::fromString($line->credit));
@@ -81,6 +83,7 @@ final readonly class LedgerReportService
                 'description' => $line->description,
                 'debit' => DecimalAmount::fromString($line->debit)->isZero() ? null : ['amount' => $line->debit, 'currency' => $line->currency],
                 'credit' => DecimalAmount::fromString($line->credit)->isZero() ? null : ['amount' => $line->credit, 'currency' => $line->currency],
+                'reversal_of_entry_id' => $line->journalEntry->reversal_of_entry_id,
                 'running_balance' => ['amount' => $running->toString(), 'currency' => $line->currency],
             ];
         });
@@ -115,11 +118,20 @@ final readonly class LedgerReportService
         return ['offset' => $value['offset'], 'boundary' => $value['boundary']];
     }
 
-    public function trialBalance(User $actor, string $entityId, ?string $asOf): LedgerActionResult
+    public function trialBalance(User $actor, string $entityId, ?string $asOf, ?string $periodRef = null, ?string $sbu = null): LedgerActionResult
     {
         $permission = 'ledger.reports.read';
         if ($this->authorization->can($actor, $entityId, $permission) === false) {
             return $this->authorization->denyResponse($permission);
+        }
+
+        $periodStart = null;
+        if ($periodRef !== null) {
+            $period = $this->periods->show($entityId, $periodRef);
+            if ($period === null) {
+                return new LedgerActionResult(['error_code' => 'not_found', 'message' => 'The period was not found.', 'details' => []], 404);
+            }
+            $periodStart = date('Y-m-d', strtotime($period->starts_on->toDateString().' -1 day'));
         }
 
         /** @var Collection<int, LedgerAccount> $accounts */
@@ -127,20 +139,27 @@ final readonly class LedgerReportService
         $totalDebit = DecimalAmount::zero();
         $totalCredit = DecimalAmount::zero();
 
-        $rows = $accounts->map(function (LedgerAccount $account) use ($entityId, $asOf, &$totalDebit, &$totalCredit): array {
-            $balance = $this->sumAccount($entityId, $account->id, $asOf);
+        $rows = $accounts->map(function (LedgerAccount $account) use ($entityId, $asOf, $periodStart, $sbu, &$totalDebit, &$totalCredit): array {
+            $balance = $this->sumAccount($entityId, $account->id, $asOf, $sbu);
             $debit = $balance->isPositive() ? $balance : DecimalAmount::zero();
             $credit = $balance->isPositive() ? DecimalAmount::zero() : $balance->negate();
             $totalDebit = $totalDebit->add($debit);
             $totalCredit = $totalCredit->add($credit);
 
-            return [
+            $row = [
                 'account_id' => $account->id,
                 'code' => $account->code,
                 'name' => $account->name,
                 'debit' => $debit->toString(),
                 'credit' => $credit->toString(),
             ];
+            if ($periodStart !== null) {
+                $opening = $this->sumAccount($entityId, $account->id, $periodStart, $sbu);
+                $row['opening'] = $opening->toString();
+                $row['movement'] = $balance->subtract($opening)->toString();
+            }
+
+            return $row;
         });
 
         return new LedgerActionResult([
@@ -154,12 +173,13 @@ final readonly class LedgerReportService
         ]);
     }
 
-    private function sumAccount(string $entityId, string $accountId, ?string $asOf): DecimalAmount
+    private function sumAccount(string $entityId, string $accountId, ?string $asOf, ?string $sbu = null): DecimalAmount
     {
         /** @var Collection<int, JournalLine> $lines */
         $lines = JournalLine::query()
             ->where('entity_id', $entityId)
             ->where('account_id', $accountId)
+            ->when($sbu !== null, fn ($query) => $query->where('sbu_tag', $sbu))
             ->whereHas('journalEntry', fn ($query) => $query->where('state', 'posted')
                 ->when($asOf !== null, fn ($query) => $query->whereDate('entry_date', '<=', $asOf)))
             ->get();

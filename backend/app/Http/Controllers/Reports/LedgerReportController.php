@@ -36,6 +36,7 @@ final class LedgerReportController
             $range['to'],
             $limit,
             $request->query('cursor') !== null ? (string) $request->query('cursor') : null,
+            $request->query('sbu') !== null ? (string) $request->query('sbu') : null,
         );
 
         return response()->json($result->payload, $result->status);
@@ -47,6 +48,8 @@ final class LedgerReportController
             $request->user(),
             (string) $request->header('X-Entity-Id'),
             $request->query('asOf') !== null ? (string) $request->query('asOf') : null,
+            $request->query('period_ref') !== null ? (string) $request->query('period_ref') : null,
+            $request->query('sbu') !== null ? (string) $request->query('sbu') : null,
         );
 
         return response()->json($result->payload, $result->status);
