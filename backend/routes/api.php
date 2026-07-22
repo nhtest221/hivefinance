@@ -10,9 +10,11 @@ use App\Http\Controllers\HealthCheckController;
 use App\Http\Controllers\Ledger\AccountController;
 use App\Http\Controllers\Ledger\JournalController;
 use App\Http\Controllers\Payables\BillController;
+use App\Http\Controllers\Payables\DebitNoteController;
 use App\Http\Controllers\Payables\ExpenseController;
 use App\Http\Controllers\Payables\VendorController;
 use App\Http\Controllers\Period\PeriodController;
+use App\Http\Controllers\Receivables\CreditNoteController;
 use App\Http\Controllers\Receivables\CustomerController;
 use App\Http\Controllers\Receivables\InvoiceController;
 use App\Http\Controllers\Reports\LedgerReportController;
@@ -41,7 +43,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/approvals/{id}/approve', [ApprovalController::class, 'approve'])->name('approvals.approve');
 
     Route::get('/periods/postable', [PeriodController::class, 'postable'])->name('periods.postable');
-    Route::get('/periods/{ref}', [PeriodController::class, 'show'])->name('periods.show');
+    Route::get('/periods', [PeriodController::class, 'index'])->name('periods.index');
+    Route::get('/periods/{id}', [PeriodController::class, 'show'])->name('periods.show');
+    Route::post('/periods/{id}/soft-close', [PeriodController::class, 'softClose'])->name('periods.soft-close');
+    Route::post('/periods/{id}/hard-close', [PeriodController::class, 'hardClose'])->name('periods.hard-close');
+    Route::post('/periods/{id}/reopen', [PeriodController::class, 'reopen'])->name('periods.reopen');
 
     Route::get('/accounts', [AccountController::class, 'index'])->name('accounts.index');
     Route::post('/accounts', [AccountController::class, 'store'])->name('accounts.store');
@@ -78,7 +84,18 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/invoices/{id}', [InvoiceController::class, 'show'])->name('invoices.show');
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::post('/invoices/{id}/issue', [InvoiceController::class, 'issue'])->name('invoices.issue');
+    Route::post('/invoices/{id}/void', [InvoiceController::class, 'void'])->name('invoices.void');
     Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
+
+    Route::post('/credit-notes', [CreditNoteController::class, 'store'])->name('credit-notes.store');
+    Route::patch('/credit-notes/{id}', [CreditNoteController::class, 'update'])->name('credit-notes.update');
+    Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show'])->name('credit-notes.show');
+    Route::get('/credit-notes', [CreditNoteController::class, 'index'])->name('credit-notes.index');
+    Route::post('/credit-notes/{id}/post', [CreditNoteController::class, 'post'])->name('credit-notes.post');
+    Route::post('/credit-notes/{id}/apply', [CreditNoteController::class, 'apply'])->name('credit-notes.apply');
+    Route::post('/credit-notes/{id}/hold', [CreditNoteController::class, 'hold'])->name('credit-notes.hold');
+    Route::post('/credit-notes/{id}/refund', [CreditNoteController::class, 'refund'])->name('credit-notes.refund');
+    Route::post('/credit-notes/{id}/reverse', [CreditNoteController::class, 'reverse'])->name('credit-notes.reverse');
 
     Route::post('/vendors', [VendorController::class, 'store'])->name('vendors.store');
     Route::patch('/vendors/{id}', [VendorController::class, 'update'])->name('vendors.update');
@@ -90,9 +107,20 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/bills/{id}', [BillController::class, 'show'])->name('bills.show');
     Route::get('/bills', [BillController::class, 'index'])->name('bills.index');
     Route::post('/bills/{id}/approve', [BillController::class, 'approve'])->name('bills.approve');
+    Route::post('/bills/{id}/void', [BillController::class, 'void'])->name('bills.void');
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
     Route::get('/expenses/{id}', [ExpenseController::class, 'show'])->name('expenses.show');
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');
+
+    Route::post('/debit-notes', [DebitNoteController::class, 'store'])->name('debit-notes.store');
+    Route::patch('/debit-notes/{id}', [DebitNoteController::class, 'update'])->name('debit-notes.update');
+    Route::get('/debit-notes/{id}', [DebitNoteController::class, 'show'])->name('debit-notes.show');
+    Route::get('/debit-notes', [DebitNoteController::class, 'index'])->name('debit-notes.index');
+    Route::post('/debit-notes/{id}/post', [DebitNoteController::class, 'post'])->name('debit-notes.post');
+    Route::post('/debit-notes/{id}/apply', [DebitNoteController::class, 'apply'])->name('debit-notes.apply');
+    Route::post('/debit-notes/{id}/hold', [DebitNoteController::class, 'hold'])->name('debit-notes.hold');
+    Route::post('/debit-notes/{id}/refund', [DebitNoteController::class, 'refund'])->name('debit-notes.refund');
+    Route::post('/debit-notes/{id}/reverse', [DebitNoteController::class, 'reverse'])->name('debit-notes.reverse');
 
     Route::post('/receipts', [SettlementController::class, 'receipt'])->name('settlement.receipts.store');
     Route::post('/payments', [SettlementController::class, 'payment'])->name('settlement.payments.store');

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Receivables;
 
 use App\Http\Requests\Documents\M2DocumentRequest;
+use App\Http\Requests\Documents\M4AVoidRequest;
 use App\Receivables\Application\InvoiceService;
+use App\Receivables\Application\InvoiceVoidService;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentQuery;
 use Illuminate\Http\JsonResponse;
@@ -15,6 +17,11 @@ final class InvoiceController
     public function store(M2DocumentRequest $r, InvoiceService $s): JsonResponse
     {
         return $this->response($s->create($r->user(), (string) $r->header('X-Entity-Id'), $r->validated(), $r->header('Idempotency-Key')));
+    }
+
+    public function void(M4AVoidRequest $r, InvoiceVoidService $s, string $id): JsonResponse
+    {
+        return $this->response($s->void($r->user(), (string) $r->header('X-Entity-Id'), $id, $r->validated(), $r->header('Idempotency-Key'), $r->header('If-Match')));
     }
 
     public function update(M2DocumentRequest $r, InvoiceService $s, string $id): JsonResponse

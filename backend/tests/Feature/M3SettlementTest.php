@@ -37,7 +37,7 @@ function m3Actors(bool $approval = false): array
         $actor->entities()->attach($entity->id, ['status' => 'active']);
         $actor->roles()->attach($role->id, ['entity_id' => $entity->id]);
     }
-    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => 'FY26-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'open']);
+    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => 'FY26-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open']);
     $accounts = [
         'bank' => LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1000', 'name' => 'Bank', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active', 'bank_attributes' => ['currency' => 'BDT']]),
         'ar' => LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1100', 'name' => 'AR', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']),

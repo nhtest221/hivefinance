@@ -24,14 +24,40 @@ use App\Ledger\Infrastructure\EloquentSettlementPostingService;
 use App\Numbering\Application\SequenceRepository;
 use App\Numbering\Infrastructure\DatabaseSequenceRepository;
 use App\Payables\Application\BillApprovalCommandHandler;
+use App\Payables\Application\BillVoidApprovalCommandHandler;
+use App\Payables\Application\BillVoidService;
+use App\Payables\Application\DebitNoteApprovalCommandHandler;
+use App\Payables\Application\DebitNoteDispositionApprovalCommandHandler;
+use App\Payables\Application\DebitNoteDispositionService;
+use App\Payables\Application\DebitNoteQuery;
+use App\Payables\Application\DebitNoteRepository;
+use App\Payables\Application\DebitNoteService;
 use App\Payables\Application\OpenPayableService;
+use App\Payables\Infrastructure\EloquentDebitNoteQuery;
+use App\Payables\Infrastructure\EloquentDebitNoteRepository;
 use App\Payables\Infrastructure\EloquentOpenPayableService;
+use App\Period\Application\CloseGateProviderRegistry;
+use App\Period\Application\PeriodApprovalCommandHandler;
+use App\Period\Application\PeriodCloseService;
 use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;
+use App\Period\Infrastructure\UnavailableCloseGateProvider;
+use App\Receivables\Application\CreditNoteApprovalCommandHandler;
+use App\Receivables\Application\CreditNoteDispositionApprovalCommandHandler;
+use App\Receivables\Application\CreditNoteDispositionService;
+use App\Receivables\Application\CreditNoteQuery;
+use App\Receivables\Application\CreditNoteRepository;
+use App\Receivables\Application\CreditNoteService;
+use App\Receivables\Application\InvoiceVoidApprovalCommandHandler;
+use App\Receivables\Application\InvoiceVoidService;
 use App\Receivables\Application\OpenReceivableService;
+use App\Receivables\Infrastructure\EloquentCreditNoteQuery;
+use App\Receivables\Infrastructure\EloquentCreditNoteRepository;
 use App\Receivables\Infrastructure\EloquentOpenReceivableService;
+use App\Settlement\Application\DocumentActivityQuery;
 use App\Settlement\Application\SettlementApprovalCommandHandler;
 use App\Settlement\Application\SettlementService;
+use App\Settlement\Infrastructure\EloquentDocumentActivityQuery;
 use App\Tax\Application\TaxApprovalCommandHandler;
 use App\Tax\Application\TaxCommandExecutor;
 use Illuminate\Support\ServiceProvider;
@@ -54,7 +80,21 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(SettlementPostingService::class, EloquentSettlementPostingService::class);
         $this->app->bind(OpenReceivableService::class, EloquentOpenReceivableService::class);
         $this->app->bind(OpenPayableService::class, EloquentOpenPayableService::class);
+        $this->app->bind(CreditNoteRepository::class, EloquentCreditNoteRepository::class);
+        $this->app->bind(CreditNoteQuery::class, EloquentCreditNoteQuery::class);
+        $this->app->bind(DebitNoteRepository::class, EloquentDebitNoteRepository::class);
+        $this->app->bind(DebitNoteQuery::class, EloquentDebitNoteQuery::class);
+        $this->app->bind(DocumentActivityQuery::class, EloquentDocumentActivityQuery::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
+        $this->app->singleton(CloseGateProviderRegistry::class, function (): CloseGateProviderRegistry {
+            $registry = new CloseGateProviderRegistry;
+            // M5 Reporting and M6 Reconciliation do not exist yet; every gate is honestly
+            // `unmet` until their real providers are implemented (API Contracts §12.7).
+            $registry->register('reporting', new UnavailableCloseGateProvider('reporting'));
+            $registry->register('reconciliation', new UnavailableCloseGateProvider('reconciliation'));
+
+            return $registry;
+        });
     }
 
     public function boot(): void
@@ -73,5 +113,19 @@ final class AppServiceProvider extends ServiceProvider
         foreach (['receipt', 'payment', 'credit_application', 'credit_refund', 'reversal'] as $type) {
             $registry->register(new SettlementApprovalCommandHandler($settlement, $type));
         }
+        $periods = $this->app->make(PeriodCloseService::class);
+        foreach (['soft_close', 'hard_close', 'reopen'] as $type) {
+            $registry->register(new PeriodApprovalCommandHandler($periods, $type));
+        }
+        $registry->register(new CreditNoteApprovalCommandHandler($this->app->make(CreditNoteService::class), 'post'));
+        $registry->register(new DebitNoteApprovalCommandHandler($this->app->make(DebitNoteService::class), 'post'));
+        $creditNoteDisposition = $this->app->make(CreditNoteDispositionService::class);
+        $debitNoteDisposition = $this->app->make(DebitNoteDispositionService::class);
+        foreach (['hold', 'apply', 'refund', 'reverse'] as $type) {
+            $registry->register(new CreditNoteDispositionApprovalCommandHandler($creditNoteDisposition, $type));
+            $registry->register(new DebitNoteDispositionApprovalCommandHandler($debitNoteDisposition, $type));
+        }
+        $registry->register(new InvoiceVoidApprovalCommandHandler($this->app->make(InvoiceVoidService::class)));
+        $registry->register(new BillVoidApprovalCommandHandler($this->app->make(BillVoidService::class)));
     }
 }

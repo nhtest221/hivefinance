@@ -29,7 +29,7 @@ function m2Actors(bool $approval = false): array
         $actor->entities()->attach($entity->id, ['status' => 'active']);
         $actor->roles()->attach($role->id, ['entity_id' => $entity->id]);
     }
-    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => 'FY26-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'open']);
+    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => 'FY26-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open']);
     $accounts = [
         'ar' => LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1100', 'name' => 'Accounts Receivable', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']),
         'revenue' => LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '4100', 'name' => 'Revenue', 'type' => 'revenue', 'normal_balance' => 'credit', 'status' => 'active']),
@@ -70,7 +70,10 @@ function createVendor($test, User $actor, Entity $entity, array $overrides = [])
 }
 
 it('implements exactly the approved 24 M2 public routes', function (): void {
-    $routes = collect(app('router')->getRoutes()->getRoutes())->map(fn ($route): string => implode('|', $route->methods()).' /'.$route->uri())->filter(fn (string $route): bool => preg_match('#/(customers|invoices|vendors|bills|expenses)(?:/|$)#', $route) === 1)->values();
+    // M4-GOV-001 adds /invoices/{id}/void and /bills/{id}/void under these same path
+    // prefixes; those are new, frozen M4 routes (counted by the M4 route-inventory test),
+    // not part of M2's frozen 24 — excluded here so this stays a pure M2 regression check.
+    $routes = collect(app('router')->getRoutes()->getRoutes())->map(fn ($route): string => implode('|', $route->methods()).' /'.$route->uri())->filter(fn (string $route): bool => preg_match('#/(customers|invoices|vendors|bills|expenses)(?:/|$)#', $route) === 1 && ! str_contains($route, '/void'))->values();
     expect($routes)->toHaveCount(24)
         ->and($routes->filter(fn (string $route): bool => str_contains($route, 'attachment')))->toHaveCount(0);
 });

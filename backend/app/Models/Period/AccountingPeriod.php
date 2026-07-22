@@ -17,6 +17,10 @@ use Override;
  * @property Carbon $ends_on
  * @property string $state
  * @property string $vat_lock_status
+ * @property bool $reclose_required
+ * @property string|null $close_evidence_set_hash
+ * @property Carbon|null $hard_closed_at
+ * @property string|null $hard_closed_by
  * @property int $version
  */
 final class AccountingPeriod extends Model
@@ -30,6 +34,10 @@ final class AccountingPeriod extends Model
         'ends_on',
         'state',
         'vat_lock_status',
+        'reclose_required',
+        'close_evidence_set_hash',
+        'hard_closed_at',
+        'hard_closed_by',
         'version',
     ];
 
@@ -39,6 +47,8 @@ final class AccountingPeriod extends Model
         return [
             'starts_on' => 'immutable_date',
             'ends_on' => 'immutable_date',
+            'reclose_required' => 'boolean',
+            'hard_closed_at' => 'immutable_datetime',
             'version' => 'integer',
         ];
     }

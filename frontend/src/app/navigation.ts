@@ -10,6 +10,7 @@ import {
   Receipt,
   Repeat2,
   Settings,
+  StickyNote,
   WalletCards,
 } from 'lucide-react'
 
@@ -30,6 +31,7 @@ export const navigationGroups = [
     items: [
       { label: 'Receivables', path: '/receivables', icon: Receipt, shortcut: 'G R' },
       { label: 'Payables', path: '/payables', icon: WalletCards, shortcut: 'G P' },
+      { label: 'Notes', path: '/notes', icon: StickyNote, shortcut: 'G N' },
     ],
   },
   {

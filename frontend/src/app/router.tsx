@@ -17,6 +17,7 @@ import { FxPage } from '@/features/fx/fx-page'
 import { ReceivablesPage } from '@/features/documents/receivables-page'
 import { PayablesPage } from '@/features/documents/payables-page'
 import { SettlementPage } from '@/features/settlement/settlement-page'
+import { NotesPage } from '@/features/notes/notes-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
   { path: '/receivables', element: <ReceivablesPage /> },
   { path: '/payables', element: <PayablesPage /> },
   { path: '/settlement', element: <SettlementPage /> },
+  { path: '/notes', element: <NotesPage /> },
   { path: '/bank-accounts', element: <BankAccountsPage /> },
   { path: '/tax', element: <TaxPage /> },
   { path: '/fx', element: <FxPage /> },

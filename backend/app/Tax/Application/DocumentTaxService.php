@@ -42,6 +42,20 @@ final readonly class DocumentTaxService
         return in_array($method, $exclusive, true) ? ['snapshot' => $values, 'net' => $gross, 'tax' => $tax, 'total' => ExactDecimal::add($gross, $tax)] : ['snapshot' => $values, 'net' => ExactDecimal::subtract($gross, $tax), 'tax' => $tax, 'total' => $gross];
     }
 
+    /**
+     * Applies an already-determined rate to a new, already-net amount, without
+     * redetermining against the current Tax Pack. Used by M4A Notes, which copy a source
+     * line's exact historical TaxSnapshot and must recompute only the tax portion for a
+     * (possibly partial) corrected net_amount — never re-derive the rate itself (API
+     * Contracts §12.2). Since the input is always the net (tax-exclusive) portion already,
+     * not a gross figure, the exclusive/inclusive decomposition in `calculate()` does not
+     * apply here: tax is always `net * rate`, the same formula either method decomposes to.
+     */
+    public function taxOnNetAmount(string $netAmount, string $rate): string
+    {
+        return $this->percent($netAmount, $rate);
+    }
+
     private function percent(string $amount, string $rate): string
     {
         $a = $this->units($amount, 4);

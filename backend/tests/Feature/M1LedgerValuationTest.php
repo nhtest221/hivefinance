@@ -32,7 +32,7 @@ function m1Actors(array $permissions): array
         $user->entities()->attach($entity->id, ['status' => 'active']);
         $user->roles()->attach($role->id, ['entity_id' => $entity->id]);
     }
-    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => '2026-07', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'open']);
+    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => '2026-07', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open']);
 
     return [$maker->refresh(), $approver->refresh(), $entity];
 }
@@ -130,7 +130,7 @@ it('binds FX cursors to the entity filters and read boundary', function (): void
 
 it('fails revaluation safely when policy configuration is absent', function (): void {
     [$maker, , $entity] = m1Actors(['fx.revaluation.run']);
-    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'soft_closed']);
+    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'SoftClosed']);
     Sanctum::actingAs($maker);
     $this->postJson('/v1/fx/revaluation', ['period_ref' => '2026-07'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])
         ->assertUnprocessable()->assertJsonPath('details.rule', 'missing_period_end_rate');
@@ -153,8 +153,8 @@ it('accepts only persisted revaluation run statuses in the query', function (): 
 
 it('posts and links the configured next-period revaluation reversal', function (): void {
     [$maker, , $entity] = m1Actors(['fx.revaluation.run']);
-    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'soft_closed']);
-    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => '2026-08', 'starts_on' => '2026-08-01', 'ends_on' => '2026-08-31', 'state' => 'open']);
+    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'SoftClosed']);
+    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => '2026-08', 'starts_on' => '2026-08-01', 'ends_on' => '2026-08-31', 'state' => 'Open']);
     $bank = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1200', 'name' => 'USD Bank', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active', 'bank_attributes' => ['currency' => 'USD']]);
     $offset = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '7900', 'name' => 'FX Gain', 'type' => 'revenue', 'normal_balance' => 'credit', 'status' => 'active']);
     $source = JournalEntry::query()->create(['entity_id' => $entity->id, 'period_id' => AccountingPeriod::query()->where('entity_id', $entity->id)->where('period_ref', '2026-07')->value('id'), 'period_ref' => '2026-07', 'entry_type' => 'manual', 'entry_date' => '2026-07-15', 'state' => 'posted', 'posted_by' => $maker->id]);
