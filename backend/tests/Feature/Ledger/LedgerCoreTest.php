@@ -51,7 +51,7 @@ function createLedgerActor(array $permissions = []): array
         'period_ref' => '2026-07',
         'starts_on' => '2026-07-01',
         'ends_on' => '2026-07-31',
-        'state' => 'open',
+        'state' => 'Open',
     ]);
 
     return [$user->refresh(), $entity, $role];
@@ -179,7 +179,7 @@ it('rejects unbalanced journals before posting', function (): void {
 it('enforces period status rules when posting a journal', function (): void {
     [$user, $entity] = createLedgerActor(['ledger.journals.create', 'ledger.journals.post']);
     [$cash, $revenue] = createLedgerAccounts($entity->id);
-    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'hard_closed']);
+    AccountingPeriod::query()->where('entity_id', $entity->id)->update(['state' => 'HardClosed']);
     Sanctum::actingAs($user);
 
     $journalId = $this->postJson('/v1/journals', [

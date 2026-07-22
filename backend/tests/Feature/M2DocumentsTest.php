@@ -29,7 +29,7 @@ function m2Actors(bool $approval = false): array
         $actor->entities()->attach($entity->id, ['status' => 'active']);
         $actor->roles()->attach($role->id, ['entity_id' => $entity->id]);
     }
-    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => 'FY26-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'open']);
+    AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => 'FY26-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open']);
     $accounts = [
         'ar' => LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1100', 'name' => 'Accounts Receivable', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']),
         'revenue' => LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '4100', 'name' => 'Revenue', 'type' => 'revenue', 'normal_balance' => 'credit', 'status' => 'active']),

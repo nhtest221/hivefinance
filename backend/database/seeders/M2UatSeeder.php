@@ -113,7 +113,7 @@ final class M2UatSeeder extends Seeder
             $user->roles()->attach($role->id, ['entity_id' => $entity->id]);
         }
 
-        $this->withId(new AccountingPeriod, '60000000-0000-4000-8000-000000000001', ['entity_id' => $entity->id, 'period_ref' => 'FY2026-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'open', 'vat_lock_status' => 'open', 'version' => 1]);
+        $this->withId(new AccountingPeriod, '60000000-0000-4000-8000-000000000001', ['entity_id' => $entity->id, 'period_ref' => 'FY2026-P01', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open', 'vat_lock_status' => 'unlocked', 'version' => 1]);
         $this->account(self::AR_ACCOUNT, $entity, '1100', 'Trade Receivables', 'asset', 'debit');
         $this->account(self::BANK_ACCOUNT, $entity, '1200', 'UAT Operating Bank', 'asset', 'debit', ['currency' => 'BDT']);
         $this->account(self::INPUT_TAX_ACCOUNT, $entity, '1300', 'Recoverable Input VAT', 'asset', 'debit');

@@ -19,10 +19,10 @@ final class EloquentPeriodQuery implements PeriodQuery
     public function postablePeriodForDate(string $entityId, string $date, string $entryType = 'manual'): ?AccountingPeriod
     {
         $period = $this->findForDate($entityId, $date);
-        if ($period?->state === 'open') {
+        if ($period?->state === 'Open') {
             return $period;
         }
-        if ($period?->state === 'soft_closed' && in_array($entryType, ['adjusting', 'revaluation'], true)) {
+        if ($period?->state === 'SoftClosed' && in_array($entryType, ['adjusting', 'revaluation'], true)) {
             return $period;
         }
 

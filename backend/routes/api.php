@@ -41,7 +41,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/approvals/{id}/approve', [ApprovalController::class, 'approve'])->name('approvals.approve');
 
     Route::get('/periods/postable', [PeriodController::class, 'postable'])->name('periods.postable');
-    Route::get('/periods/{ref}', [PeriodController::class, 'show'])->name('periods.show');
+    Route::get('/periods', [PeriodController::class, 'index'])->name('periods.index');
+    Route::get('/periods/{id}', [PeriodController::class, 'show'])->name('periods.show');
+    Route::post('/periods/{id}/soft-close', [PeriodController::class, 'softClose'])->name('periods.soft-close');
+    Route::post('/periods/{id}/hard-close', [PeriodController::class, 'hardClose'])->name('periods.hard-close');
+    Route::post('/periods/{id}/reopen', [PeriodController::class, 'reopen'])->name('periods.reopen');
 
     Route::get('/accounts', [AccountController::class, 'index'])->name('accounts.index');
     Route::post('/accounts', [AccountController::class, 'store'])->name('accounts.store');

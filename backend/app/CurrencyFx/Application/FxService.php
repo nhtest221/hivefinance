@@ -119,7 +119,7 @@ final readonly class FxService
             return $replay;
         }
         $period = $this->periods->show($entityId, $data['period_ref']);
-        if ($period === null || $period->state !== 'soft_closed') {
+        if ($period === null || $period->state !== 'SoftClosed') {
             return $this->error('period_locked', 'Revaluation requires a Soft Close period.', 423);
         }
         foreach (['source_precedence', 'rounding_mode', 'rounding_scale', 'unrealised_gain_account_id', 'unrealised_loss_account_id'] as $setting) {
@@ -183,7 +183,7 @@ final readonly class FxService
             return false;
         }
         $target = $this->periods->show($entityId, $run->target_period_ref);
-        if ($target === null || $target->state !== 'open') {
+        if ($target === null || $target->state !== 'Open') {
             return false;
         }
         DB::transaction(function () use ($run, $entityId, $actorId, $target): void {
