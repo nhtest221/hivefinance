@@ -1,0 +1,148 @@
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
+
+import { notesApi, type Note, type NoteApi, type NoteCommandResult } from './notes-api'
+import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@/design-system'
+import { hasPermission } from '@/features/identity/permissions'
+
+function parseArray(value: string, label: string): unknown[] {
+  const parsed = JSON.parse(value) as unknown
+  if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array.`)
+  return parsed
+}
+
+function outcome(result: NoteCommandResult, verb: string): string {
+  if (result.approval) return `Approval ${result.approval.id} is ${result.approval.status}; the note has not changed yet.`
+  return result.note ? `Note ${result.note.document_number ?? result.note.id.slice(0, 8)} ${verb}.` : 'Command completed.'
+}
+
+export function NotesPage() {
+  return <main className="p-6"><div className="mx-auto max-w-6xl space-y-5">
+    <div><h1 className="text-2xl font-semibold">Notes</h1><p className="text-sm text-[var(--color-text-muted)]">Credit and debit notes: correction drafting, posting, and disposition (apply, hold, refund, reverse).</p></div>
+    <Tabs defaultValue="credit"><TabsList><TabsTrigger value="credit">Credit notes</TabsTrigger><TabsTrigger value="debit">Debit notes</TabsTrigger></TabsList>
+      <TabsContent value="credit"><NotePanel api={notesApi.creditNotes} partyLabel="Customer" sourceLabel="Invoice" prefix="receivables.credit_notes" /></TabsContent>
+      <TabsContent value="debit"><NotePanel api={notesApi.debitNotes} partyLabel="Vendor" sourceLabel="Bill" prefix="payables.debit_notes" /></TabsContent>
+    </Tabs>
+  </div></main>
+}
+
+function NotePanel({ api, partyLabel, sourceLabel, prefix }: { api: NoteApi; partyLabel: string; sourceLabel: string; prefix: string }) {
+  const canRead = hasPermission(`${prefix}.read`)
+  const canCreate = hasPermission(`${prefix}.create`)
+  const canPost = hasPermission(`${prefix}.post`)
+  const canHold = hasPermission(`${prefix}.hold`)
+  const canApply = hasPermission(`${prefix}.apply`)
+  const canRefund = hasPermission(`${prefix}.refund`)
+  const canReverse = hasPermission(`${prefix}.reverse`)
+  const [notes, setNotes] = useState<Note[]>([])
+  const [message, setMessage] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Note | null>(null)
+
+  const load = useCallback(async () => {
+    if (!canRead) return
+    try { setNotes((await api.list()).notes) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to load notes.') }
+  }, [canRead, api])
+  useEffect(() => { void load() }, [load])
+
+  if (!canRead) return <Alert>You do not have permission to view {partyLabel === 'Customer' ? 'credit' : 'debit'} notes.</Alert>
+
+  async function post(note: Note) {
+    try { const result = await api.post(note); setMessage(outcome(result, 'posted')); await load() } catch (error) { setMessage(error instanceof Error ? error.message : 'Post failed.') }
+  }
+
+  return <div className="space-y-4">
+    {message ? <Alert>{message}</Alert> : null}
+    {canCreate ? <NoteCreateForm api={api} partyLabel={partyLabel} sourceLabel={sourceLabel} onDone={async (text) => { setMessage(text); await load() }} /> : null}
+    <Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Date</TableHead><TableHead>State</TableHead><TableHead>Posted</TableHead><TableHead>Applied</TableHead><TableHead>Refunded</TableHead><TableHead>Held</TableHead><TableHead>Undisposed</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{notes.map((n) => <TableRow key={n.id}><TableCell>{n.document_number ?? n.id.slice(0, 8)}</TableCell><TableCell>{n.note_date}</TableCell><TableCell><Badge>{n.state}</Badge></TableCell><TableCell>{n.posted_amount.currency} {n.posted_amount.amount}</TableCell><TableCell>{n.applied_amount.amount}</TableCell><TableCell>{n.refunded_amount.amount}</TableCell><TableCell>{n.held_remaining_amount.amount}</TableCell><TableCell>{n.undisposed_amount.amount}</TableCell><TableCell className="space-x-2">{n.state === 'draft' && canPost ? <Button variant="secondary" onClick={() => void post(n)}>Post</Button> : null}{n.state === 'posted' && (canHold || canApply || canRefund || canReverse) ? <Button variant="secondary" onClick={() => setSelected(n)}>Disposition</Button> : null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card>
+    {selected ? <NoteDispositionForm api={api} note={selected} canHold={canHold} canApply={canApply} canRefund={canRefund} canReverse={canReverse} onClose={() => setSelected(null)} onDone={async (text) => { setMessage(text); setSelected(null); await load() }} /> : null}
+  </div>
+}
+
+function NoteCreateForm({ api, partyLabel, sourceLabel, onDone }: { api: NoteApi; partyLabel: string; sourceLabel: string; onDone: (message: string) => Promise<void> }) {
+  const [partyType, setPartyType] = useState(partyLabel === 'Customer' ? 'customer' : 'vendor')
+  const [documentType, setDocumentType] = useState(sourceLabel.toLowerCase())
+  const [partyId, setPartyId] = useState('')
+  const [sourceDocumentId, setSourceDocumentId] = useState('')
+  const [sourceVersion, setSourceVersion] = useState('1')
+  const [noteDate, setNoteDate] = useState('')
+  const [reasonCode, setReasonCode] = useState('')
+  const [narrative, setNarrative] = useState('')
+  const [lines, setLines] = useState('[]')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      const parsedLines = parseArray(lines, 'Lines')
+      const result = await api.create({ party_type: partyType, document_type: documentType, party_id: partyId, source_document_id: sourceDocumentId, source_document_expected_version: Number(sourceVersion), note_date: noteDate, reason_code: reasonCode, narrative: narrative || null, lines: parsedLines as never })
+      await onDone(outcome(result, 'created as a draft'))
+    } catch (error) { await onDone(error instanceof Error ? error.message : 'Note creation failed.') } finally { setBusy(false) }
+  }
+
+  return <Card><CardHeader><h2 className="font-semibold">Draft a {partyLabel === 'Customer' ? 'credit' : 'debit'} note</h2></CardHeader><CardContent><form className="space-y-3" onSubmit={(event) => void submit(event)}>
+    <div className="grid grid-cols-2 gap-2"><Input placeholder="Configured party_type" value={partyType} onChange={(event) => setPartyType(event.target.value)} required /><Input placeholder="Configured document_type" value={documentType} onChange={(event) => setDocumentType(event.target.value)} required /></div>
+    <div className="grid grid-cols-2 gap-2"><Input placeholder={`${partyLabel} UUID`} value={partyId} onChange={(event) => setPartyId(event.target.value)} required /><Input placeholder={`${sourceLabel} UUID`} value={sourceDocumentId} onChange={(event) => setSourceDocumentId(event.target.value)} required /></div>
+    <div className="grid grid-cols-3 gap-2"><Input type="date" value={noteDate} onChange={(event) => setNoteDate(event.target.value)} required /><Input placeholder="Source document expected version" value={sourceVersion} onChange={(event) => setSourceVersion(event.target.value)} required /><Input placeholder="Configured reason code" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)} required /></div>
+    <Input placeholder="Narrative (optional)" value={narrative} onChange={(event) => setNarrative(event.target.value)} />
+    <label className="block text-sm">Lines JSON (source_line_id, description, net_amount {'{amount,currency}'})<Textarea value={lines} onChange={(event) => setLines(event.target.value)} /></label>
+    <Button disabled={busy} type="submit">{busy ? 'Submitting…' : 'Save draft'}</Button>
+  </form></CardContent></Card>
+}
+
+function NoteDispositionForm({ api, note, canHold, canApply, canRefund, canReverse, onClose, onDone }: { api: NoteApi; note: Note; canHold: boolean; canApply: boolean; canRefund: boolean; canReverse: boolean; onClose: () => void; onDone: (message: string) => Promise<void> }) {
+  const firstMode = canHold ? 'hold' : canApply ? 'apply' : canRefund ? 'refund' : 'reverse'
+  const [mode, setMode] = useState<'hold' | 'apply' | 'refund' | 'reverse'>(firstMode)
+  const [date, setDate] = useState('')
+  const [amount, setAmount] = useState('')
+  const [source, setSource] = useState<'undisposed' | 'held'>('undisposed')
+  const [allocations, setAllocations] = useState('[]')
+  const [creditSources, setCreditSources] = useState('[]')
+  const [bankAccountId, setBankAccountId] = useState('')
+  const [refundAmount, setRefundAmount] = useState('')
+  const [expectedBalance, setExpectedBalance] = useState('')
+  const [rateRecordId, setRateRecordId] = useState('')
+  const [reasonCode, setReasonCode] = useState('')
+  const [narrative, setNarrative] = useState('')
+  const [documentVersions, setDocumentVersions] = useState('[]')
+  const [creditSourceVersions, setCreditSourceVersions] = useState('[]')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      const result = mode === 'hold'
+        ? await api.hold(note, { hold_date: date, amount: { amount, currency: note.currency } })
+        : mode === 'apply'
+          ? await api.apply(note, { application_date: date, source, allocations: parseArray(allocations, 'Allocations') as never, credit_sources: parseArray(creditSources, 'Credit sources') as never })
+          : mode === 'refund'
+            ? await api.refund(note, { refund_date: date, bank_account_id: bankAccountId, refund_amount: { amount: refundAmount, currency: note.currency }, expected_available_balance: { amount: expectedBalance, currency: note.currency }, rate_record_id: rateRecordId || null, credit_sources: parseArray(creditSources, 'Credit sources') as never })
+            : await api.reverse(note, { reversal_date: date, reason_code: reasonCode, narrative, document_versions: parseArray(documentVersions, 'Document versions') as never, credit_source_versions: parseArray(creditSourceVersions, 'Credit source versions') as never })
+      await onDone(outcome(result, mode === 'hold' ? 'held' : mode === 'apply' ? 'applied' : mode === 'refund' ? 'refunded' : 'reversed'))
+    } catch (error) { await onDone(error instanceof Error ? error.message : 'Disposition command failed.') } finally { setBusy(false) }
+  }
+
+  return <Card><CardHeader><h2 className="font-semibold">Disposition — {note.document_number ?? note.id.slice(0, 8)}</h2></CardHeader><CardContent><form className="space-y-3" onSubmit={(event) => void submit(event)}>
+    <select className="w-full rounded-md border px-2 py-2" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
+      {canHold ? <option value="hold">Hold</option> : null}{canApply ? <option value="apply">Apply</option> : null}{canRefund ? <option value="refund">Refund</option> : null}{canReverse ? <option value="reverse">Reverse</option> : null}
+    </select>
+    <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+    {mode === 'hold' ? <Input placeholder={`Amount (${note.currency})`} value={amount} onChange={(event) => setAmount(event.target.value)} required /> : null}
+    {mode === 'apply' ? <>
+      <select className="w-full rounded-md border px-2 py-2" value={source} onChange={(event) => setSource(event.target.value as 'undisposed' | 'held')}><option value="undisposed">From undisposed balance</option><option value="held">From held credit sources</option></select>
+      <label className="block text-sm">Allocations JSON (document_id, amount, expected_version)<Textarea value={allocations} onChange={(event) => setAllocations(event.target.value)} /></label>
+      <label className="block text-sm">Credit sources JSON (optional; credit_tranche_id, amount, expected_version)<Textarea value={creditSources} onChange={(event) => setCreditSources(event.target.value)} /></label>
+    </> : null}
+    {mode === 'refund' ? <>
+      <Input placeholder="Bank account UUID" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} required />
+      <div className="grid grid-cols-2 gap-2"><Input placeholder={`Refund amount (${note.currency})`} value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} required /><Input placeholder="Expected available balance" value={expectedBalance} onChange={(event) => setExpectedBalance(event.target.value)} required /></div>
+      <Input placeholder="Refund RateRecord UUID (foreign only)" value={rateRecordId} onChange={(event) => setRateRecordId(event.target.value)} />
+      <label className="block text-sm">Credit sources JSON (credit_tranche_id, amount, expected_version)<Textarea value={creditSources} onChange={(event) => setCreditSources(event.target.value)} /></label>
+    </> : null}
+    {mode === 'reverse' ? <>
+      <Input placeholder="Configured reason code" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)} required />
+      <Input placeholder="Narrative" value={narrative} onChange={(event) => setNarrative(event.target.value)} required />
+      <label className="block text-sm">Document versions JSON (empty array if none apply)<Textarea value={documentVersions} onChange={(event) => setDocumentVersions(event.target.value)} /></label>
+      <label className="block text-sm">Credit source versions JSON (empty array if none apply)<Textarea value={creditSourceVersions} onChange={(event) => setCreditSourceVersions(event.target.value)} /></label>
+    </> : null}
+    <div className="flex gap-2"><Button disabled={busy} type="submit">{busy ? 'Submitting…' : 'Submit'}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button></div>
+  </form></CardContent></Card>
+}
