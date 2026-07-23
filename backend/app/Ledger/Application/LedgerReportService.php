@@ -136,11 +136,14 @@ final readonly class LedgerReportService
 
         /** @var Collection<int, LedgerAccount> $accounts */
         $accounts = LedgerAccount::query()->where('entity_id', $entityId)->orderBy('code')->get();
+        $accountIds = $accounts->pluck('id')->all();
+        $balances = $this->sumAccounts($entityId, $accountIds, $asOf, $sbu);
+        $openings = $periodStart !== null ? $this->sumAccounts($entityId, $accountIds, $periodStart, $sbu) : [];
         $totalDebit = DecimalAmount::zero();
         $totalCredit = DecimalAmount::zero();
 
-        $rows = $accounts->map(function (LedgerAccount $account) use ($entityId, $asOf, $periodStart, $sbu, &$totalDebit, &$totalCredit): array {
-            $balance = $this->sumAccount($entityId, $account->id, $asOf, $sbu);
+        $rows = $accounts->map(function (LedgerAccount $account) use ($balances, $openings, $periodStart, &$totalDebit, &$totalCredit): array {
+            $balance = $balances[$account->id];
             $debit = $balance->isPositive() ? $balance : DecimalAmount::zero();
             $credit = $balance->isPositive() ? DecimalAmount::zero() : $balance->negate();
             $totalDebit = $totalDebit->add($debit);
@@ -154,7 +157,7 @@ final readonly class LedgerReportService
                 'credit' => $credit->toString(),
             ];
             if ($periodStart !== null) {
-                $opening = $this->sumAccount($entityId, $account->id, $periodStart, $sbu);
+                $opening = $openings[$account->id];
                 $row['opening'] = $opening->toString();
                 $row['movement'] = $balance->subtract($opening)->toString();
             }
@@ -190,5 +193,37 @@ final readonly class LedgerReportService
                 ->subtract(DecimalAmount::fromString($line->credit)),
             DecimalAmount::zero(),
         );
+    }
+
+    /**
+     * Batched equivalent of sumAccount() for every account in one call — a single query
+     * instead of one query per account, used by trialBalance() to avoid an N+1 over the
+     * full chart of accounts.
+     *
+     * @param  list<string>  $accountIds
+     * @return array<string, DecimalAmount> accountId => balance
+     */
+    private function sumAccounts(string $entityId, array $accountIds, ?string $asOf, ?string $sbu = null): array
+    {
+        $balances = array_fill_keys($accountIds, DecimalAmount::zero());
+        if ($accountIds === []) {
+            return $balances;
+        }
+        /** @var Collection<int, JournalLine> $lines */
+        $lines = JournalLine::query()
+            ->where('entity_id', $entityId)
+            ->whereIn('account_id', $accountIds)
+            ->when($sbu !== null, fn ($query) => $query->where('sbu_tag', $sbu))
+            ->whereHas('journalEntry', fn ($query) => $query->where('state', 'posted')
+                ->when($asOf !== null, fn ($query) => $query->whereDate('entry_date', '<=', $asOf)))
+            ->get(['account_id', 'debit', 'credit']);
+
+        foreach ($lines as $line) {
+            $balances[$line->account_id] = $balances[$line->account_id]
+                ->add(DecimalAmount::fromString($line->debit))
+                ->subtract(DecimalAmount::fromString($line->credit));
+        }
+
+        return $balances;
     }
 }

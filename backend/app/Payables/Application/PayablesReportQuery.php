@@ -30,11 +30,13 @@ interface PayablesReportQuery
     public function billsWithLinesInRange(string $entityId, string $from, string $to): Collection;
 
     /**
-     * Posted DebitNotes for one vendor — AP Ageing's unapplied-credit source.
+     * Posted DebitNotes for a set of vendors in one query — AP Ageing's unapplied-credit
+     * source, batched to avoid an N+1 over the vendor list.
      *
+     * @param  list<string>  $vendorIds
      * @return Collection<int, DebitNote>
      */
-    public function postedDebitNotesForVendor(string $entityId, string $vendorId): Collection;
+    public function postedDebitNotesForVendors(string $entityId, array $vendorIds): Collection;
 
     /**
      * Posted DebitNotes for a period, with lines eager-loaded — Tax Summary's input-VAT

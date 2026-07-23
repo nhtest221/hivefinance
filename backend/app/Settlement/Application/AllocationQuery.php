@@ -44,7 +44,13 @@ interface AllocationQuery
      * settlement_date — feeds Reporting's source-data watermark (API Contracts §13.4/§13.12). */
     public function latestPostedAt(string $entityId, ?string $to): ?string;
 
-    /** Sum of available_balance across PartyCreditBalance rows for one party — the
-     * unapplied-credit component of AR/AP ageing (API Contracts §13.9). */
-    public function partyCreditBalanceTotal(string $entityId, string $partyType, string $partyId): string;
+    /**
+     * Sum of available_balance across PartyCreditBalance rows for a set of parties of one
+     * type, in one query — the unapplied-credit component of AR/AP ageing (API Contracts
+     * §13.9), batched to avoid an N+1 over the customer/vendor list.
+     *
+     * @param  list<string>  $partyIds
+     * @return array<string, string> partyId => exact decimal total
+     */
+    public function partyCreditBalanceTotals(string $entityId, string $partyType, array $partyIds): array;
 }

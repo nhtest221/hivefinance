@@ -12,6 +12,7 @@ use App\Models\Reporting\AgeingBucketSetVersion;
 use App\Models\Reporting\CashViewPolicyVersion;
 use App\Models\Reporting\ReportLayoutVersion;
 use App\Models\Settlement\Allocation;
+use App\Models\Settlement\PartyCreditBalance;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -153,6 +154,29 @@ it('ages open receivables into the frozen five buckets and keeps unapplied credi
     $byInvoice = collect($response['detail'])->keyBy('invoice_id');
     expect($byInvoice[$current->id]['bucket_id'])->toBe('not_due')
         ->and($byInvoice[$overdue->id]['bucket_id'])->toBe('overdue_61_90');
+});
+
+it('keeps unapplied credit per-customer distinct when ageing sums multiple customers in one batch', function (): void {
+    [$entity, $owner] = m5Actors();
+    $customerA = Customer::query()->create(['entity_id' => $entity->id, 'name' => 'Cust A', 'normalized_name' => 'CUST A', 'type' => 'local', 'default_currency' => 'BDT', 'payment_terms' => 'net_30', 'status' => 'active', 'version' => 1, 'created_by' => (string) Str::uuid()]);
+    $customerB = Customer::query()->create(['entity_id' => $entity->id, 'name' => 'Cust B', 'normalized_name' => 'CUST B', 'type' => 'local', 'default_currency' => 'BDT', 'payment_terms' => 'net_30', 'status' => 'active', 'version' => 1, 'created_by' => (string) Str::uuid()]);
+    Invoice::query()->create(['entity_id' => $entity->id, 'document_number' => 'INV-A', 'customer_id' => $customerA->id, 'invoice_date' => '2026-07-01', 'due_date' => '2026-08-05', 'currency' => 'BDT', 'subtotal' => '100.0000', 'tax_total' => '0.0000', 'total' => '100.0000', 'open_balance' => '100.0000', 'status' => 'sent', 'version' => 1, 'created_by' => (string) Str::uuid()]);
+    Invoice::query()->create(['entity_id' => $entity->id, 'document_number' => 'INV-B', 'customer_id' => $customerB->id, 'invoice_date' => '2026-07-01', 'due_date' => '2026-08-05', 'currency' => 'BDT', 'subtotal' => '50.0000', 'tax_total' => '0.0000', 'total' => '50.0000', 'open_balance' => '50.0000', 'status' => 'sent', 'version' => 1, 'created_by' => (string) Str::uuid()]);
+    PartyCreditBalance::query()->create(['entity_id' => $entity->id, 'party_type' => 'customer', 'party_id' => $customerA->id, 'currency' => 'BDT', 'available_balance' => '30.0000', 'functional_carrying_balance' => '30.0000', 'version' => 1]);
+    PartyCreditBalance::query()->create(['entity_id' => $entity->id, 'party_type' => 'customer', 'party_id' => $customerB->id, 'currency' => 'BDT', 'available_balance' => '75.0000', 'functional_carrying_balance' => '75.0000', 'version' => 1]);
+    AgeingBucketSetVersion::query()->create(['entity_id' => $entity->id, 'version_number' => 1, 'buckets' => [
+        ['bucket_id' => 'not_due', 'label' => 'Not Due', 'lower_days' => null, 'upper_days' => -1, 'order' => 1],
+        ['bucket_id' => 'overdue_0_30', 'label' => '0-30', 'lower_days' => 0, 'upper_days' => 30, 'order' => 2],
+        ['bucket_id' => 'overdue_31_60', 'label' => '31-60', 'lower_days' => 31, 'upper_days' => 60, 'order' => 3],
+        ['bucket_id' => 'overdue_61_90', 'label' => '61-90', 'lower_days' => 61, 'upper_days' => 90, 'order' => 4],
+        ['bucket_id' => 'overdue_90_plus', 'label' => '91+', 'lower_days' => 91, 'upper_days' => null, 'order' => 5],
+    ], 'effective_from' => '2026-01-01', 'effective_to' => null]);
+    Sanctum::actingAs($owner);
+
+    $summary = $this->getJson('/v1/reports/ar-ageing?asOf=2026-07-31', ['X-Entity-Id' => $entity->id])->assertOk()->json('summary');
+    $bySummaryCustomer = collect($summary)->keyBy('customer_id');
+    expect($bySummaryCustomer[$customerA->id]['unapplied_credit']['amount'])->toBe('30.0000')
+        ->and($bySummaryCustomer[$customerB->id]['unapplied_credit']['amount'])->toBe('75.0000');
 });
 
 it('rejects ageing generation with no configured bucket set', function (): void {
