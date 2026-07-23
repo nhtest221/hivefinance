@@ -27,11 +27,16 @@ final class EloquentPayablesReportQuery implements PayablesReportQuery
             ->with('lines')->get();
     }
 
-    /** @return Collection<int, DebitNote> */
-    public function postedDebitNotesForVendor(string $entityId, string $vendorId): Collection
+    /** @param list<string> $vendorIds
+     * @return Collection<int, DebitNote> */
+    public function postedDebitNotesForVendors(string $entityId, array $vendorIds): Collection
     {
+        if ($vendorIds === []) {
+            return new Collection;
+        }
+
         return DebitNote::query()->where('entity_id', $entityId)
-            ->where('vendor_id', $vendorId)
+            ->whereIn('vendor_id', $vendorIds)
             ->where('state', 'posted')->get();
     }
 

@@ -64,13 +64,23 @@ final class EloquentAllocationQuery implements AllocationQuery
         return is_string($max) ? $max : null;
     }
 
-    public function partyCreditBalanceTotal(string $entityId, string $partyType, string $partyId): string
+    /** @param list<string> $partyIds
+     * @return array<string, string> */
+    public function partyCreditBalanceTotals(string $entityId, string $partyType, array $partyIds): array
     {
-        return PartyCreditBalance::query()
+        $totals = array_fill_keys($partyIds, '0.0000');
+        if ($partyIds === []) {
+            return $totals;
+        }
+        $balances = PartyCreditBalance::query()
             ->where('entity_id', $entityId)
             ->where('party_type', $partyType)
-            ->where('party_id', $partyId)
-            ->get()
-            ->reduce(fn (string $sum, PartyCreditBalance $balance): string => ExactDecimal::add($sum, $balance->available_balance), '0.0000');
+            ->whereIn('party_id', $partyIds)
+            ->get();
+        foreach ($balances as $balance) {
+            $totals[$balance->party_id] = ExactDecimal::add($totals[$balance->party_id], $balance->available_balance);
+        }
+
+        return $totals;
     }
 }

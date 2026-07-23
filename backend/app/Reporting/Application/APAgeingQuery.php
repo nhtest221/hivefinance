@@ -3,7 +3,6 @@
 namespace App\Reporting\Application;
 
 use App\Identity\Application\EntityReferenceQuery;
-use App\Models\Payables\DebitNote;
 use App\Models\User;
 use App\Payables\Application\PayablesReportQuery;
 use App\Settlement\Application\AllocationQuery;
@@ -52,10 +51,15 @@ final readonly class APAgeingQuery
         }
 
         $vendorIds = $vendorId !== null ? [$vendorId] : array_keys($summaryByVendor);
+        $unappliedCreditByVendor = [];
+        foreach ($this->payables->postedDebitNotesForVendors($entityId, $vendorIds) as $note) {
+            $unappliedCreditByVendor[$note->vendor_id] = ExactDecimal::add($unappliedCreditByVendor[$note->vendor_id] ?? '0.0000', $note->undisposed_amount);
+        }
+        $partyCreditByVendor = $this->allocations->partyCreditBalanceTotals($entityId, 'vendor', $vendorIds);
         $summary = [];
         foreach ($vendorIds as $id) {
-            $unappliedCredit = $this->payables->postedDebitNotesForVendor($entityId, $id)->reduce(fn (string $sum, DebitNote $n): string => ExactDecimal::add($sum, $n->undisposed_amount), '0.0000');
-            $partyCredit = $this->allocations->partyCreditBalanceTotal($entityId, 'vendor', $id);
+            $unappliedCredit = $unappliedCreditByVendor[$id] ?? '0.0000';
+            $partyCredit = $partyCreditByVendor[$id] ?? '0.0000';
             $totalsByBucket = array_map(fn (string $bucketId): array => ['bucket_id' => $bucketId, 'amount' => ['amount' => $summaryByVendor[$id]['totals'][$bucketId] ?? '0.0000', 'currency' => $currency]], $bucketSet->bucketIds());
             $summary[] = ['vendor_id' => $id, 'totals_by_bucket' => $totalsByBucket, 'credit_balances' => ['amount' => '0.0000', 'currency' => $currency], 'unapplied_credit' => ['amount' => ExactDecimal::add($unappliedCredit, $partyCredit), 'currency' => $currency], 'total_open' => ['amount' => $summaryByVendor[$id]['total_open'] ?? '0.0000', 'currency' => $currency]];
         }

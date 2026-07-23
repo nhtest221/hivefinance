@@ -30,11 +30,13 @@ interface ReceivablesReportQuery
     public function invoicesWithLinesInRange(string $entityId, string $from, string $to): Collection;
 
     /**
-     * Posted CreditNotes for one customer — AR Ageing's unapplied-credit source.
+     * Posted CreditNotes for a set of customers in one query — AR Ageing's unapplied-credit
+     * source, batched to avoid an N+1 over the customer list.
      *
+     * @param  list<string>  $customerIds
      * @return Collection<int, CreditNote>
      */
-    public function postedCreditNotesForCustomer(string $entityId, string $customerId): Collection;
+    public function postedCreditNotesForCustomers(string $entityId, array $customerIds): Collection;
 
     /**
      * Posted CreditNotes for a period, with lines eager-loaded — Tax Summary's output-VAT

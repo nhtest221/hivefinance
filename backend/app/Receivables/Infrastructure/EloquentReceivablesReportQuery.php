@@ -27,11 +27,16 @@ final class EloquentReceivablesReportQuery implements ReceivablesReportQuery
             ->with('lines')->get();
     }
 
-    /** @return Collection<int, CreditNote> */
-    public function postedCreditNotesForCustomer(string $entityId, string $customerId): Collection
+    /** @param list<string> $customerIds
+     * @return Collection<int, CreditNote> */
+    public function postedCreditNotesForCustomers(string $entityId, array $customerIds): Collection
     {
+        if ($customerIds === []) {
+            return new Collection;
+        }
+
         return CreditNote::query()->where('entity_id', $entityId)
-            ->where('customer_id', $customerId)
+            ->whereIn('customer_id', $customerIds)
             ->where('state', 'posted')->get();
     }
 

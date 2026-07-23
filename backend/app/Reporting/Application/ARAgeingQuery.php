@@ -3,7 +3,6 @@
 namespace App\Reporting\Application;
 
 use App\Identity\Application\EntityReferenceQuery;
-use App\Models\Receivables\CreditNote;
 use App\Models\User;
 use App\Receivables\Application\ReceivablesReportQuery;
 use App\Settlement\Application\AllocationQuery;
@@ -52,10 +51,15 @@ final readonly class ARAgeingQuery
         }
 
         $customerIds = $customerId !== null ? [$customerId] : array_keys($summaryByCustomer);
+        $unappliedCreditByCustomer = [];
+        foreach ($this->receivables->postedCreditNotesForCustomers($entityId, $customerIds) as $note) {
+            $unappliedCreditByCustomer[$note->customer_id] = ExactDecimal::add($unappliedCreditByCustomer[$note->customer_id] ?? '0.0000', $note->undisposed_amount);
+        }
+        $partyCreditByCustomer = $this->allocations->partyCreditBalanceTotals($entityId, 'customer', $customerIds);
         $summary = [];
         foreach ($customerIds as $id) {
-            $unappliedCredit = $this->receivables->postedCreditNotesForCustomer($entityId, $id)->reduce(fn (string $sum, CreditNote $n): string => ExactDecimal::add($sum, $n->undisposed_amount), '0.0000');
-            $partyCredit = $this->allocations->partyCreditBalanceTotal($entityId, 'customer', $id);
+            $unappliedCredit = $unappliedCreditByCustomer[$id] ?? '0.0000';
+            $partyCredit = $partyCreditByCustomer[$id] ?? '0.0000';
             $totalsByBucket = array_map(fn (string $bucketId): array => ['bucket_id' => $bucketId, 'amount' => ['amount' => $summaryByCustomer[$id]['totals'][$bucketId] ?? '0.0000', 'currency' => $currency]], $bucketSet->bucketIds());
             $summary[] = ['customer_id' => $id, 'totals_by_bucket' => $totalsByBucket, 'credit_balances' => ['amount' => '0.0000', 'currency' => $currency], 'unapplied_credit' => ['amount' => ExactDecimal::add($unappliedCredit, $partyCredit), 'currency' => $currency], 'total_open' => ['amount' => $summaryByCustomer[$id]['total_open'] ?? '0.0000', 'currency' => $currency]];
         }
