@@ -5,6 +5,7 @@ use App\Models\Identity\Role;
 use App\Models\Ledger\JournalEntry;
 use App\Models\Ledger\LedgerAccount;
 use App\Models\Period\AccountingPeriod;
+use App\Models\Reporting\ReportRun;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -109,7 +110,37 @@ it('rejects generation for an unknown report_type and approval of an already-app
     $this->postJson('/v1/report-runs/'.$run['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertOk();
     $this->postJson('/v1/report-runs/'.$run['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
         ->assertStatus(422)
-        ->assertJsonPath('error_code', 'report_run_not_approved');
+        ->assertJsonPath('error_code', 'report_run_already_approved');
+});
+
+it('rejects approval of a rejected ReportRun with the frozen report_run_rejected rule', function (): void {
+    [$entity, $generator, $checker] = m5RunActors();
+    Sanctum::actingAs($generator);
+    $run = $this->postJson('/v1/report-runs', ['report_type' => 'trial_balance', 'as_of' => '2026-07-31'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('report_run');
+
+    app(ReportRun::class)->newQuery()->where('id', $run['id'])->update(['state' => 'Rejected']);
+
+    Sanctum::actingAs($checker);
+    $this->postJson('/v1/report-runs/'.$run['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
+        ->assertStatus(422)
+        ->assertJsonPath('error_code', 'report_run_rejected');
+});
+
+it('rejects approval of a superseded ReportRun with the frozen report_run_already_approved rule', function (): void {
+    [$entity, $generator, $checker] = m5RunActors();
+    Sanctum::actingAs($generator);
+    $first = $this->postJson('/v1/report-runs', ['report_type' => 'trial_balance', 'as_of' => '2026-07-31'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('report_run');
+    Sanctum::actingAs($checker);
+    $this->postJson('/v1/report-runs/'.$first['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertOk();
+
+    Sanctum::actingAs($generator);
+    $second = $this->postJson('/v1/report-runs', ['report_type' => 'trial_balance', 'as_of' => '2026-07-31'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('report_run');
+    Sanctum::actingAs($checker);
+    $this->postJson('/v1/report-runs/'.$second['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertOk();
+
+    $this->postJson('/v1/report-runs/'.$first['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
+        ->assertStatus(422)
+        ->assertJsonPath('error_code', 'report_run_already_approved');
 });
 
 it('registers exactly the 14 frozen M5 public endpoints', function (): void {

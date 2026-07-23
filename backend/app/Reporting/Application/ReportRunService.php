@@ -214,8 +214,11 @@ final readonly class ReportRunService
         if ($run === null) {
             return $this->notFound();
         }
-        if (! in_array($run->state, ['Generated', 'PendingApproval'], true)) {
-            return $this->commands->error('report_run_not_approved', 'Only a Generated ReportRun may be approved.', 422, ['rule' => 'report_run_not_approved']);
+        if (in_array($run->state, ['Approved', 'Superseded'], true)) {
+            return $this->commands->error('report_run_already_approved', 'This ReportRun has already been approved.', 422, ['rule' => 'report_run_already_approved']);
+        }
+        if ($run->state === 'Rejected') {
+            return $this->commands->error('report_run_rejected', 'This ReportRun was rejected and cannot be approved.', 422, ['rule' => 'report_run_rejected']);
         }
         if ($run->version !== $expected) {
             return $this->conflict($run->version);
