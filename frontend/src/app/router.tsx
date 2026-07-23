@@ -6,7 +6,6 @@ import { LoginPage } from './pages/login-page'
 import {
   AuditLogPage,
   BankAccountsPage,
-  ReportsPage,
   SettingsPage,
 } from './pages/module-screens'
 import { ResetPasswordPage } from './pages/reset-password-page'
@@ -18,6 +17,7 @@ import { ReceivablesPage } from '@/features/documents/receivables-page'
 import { PayablesPage } from '@/features/documents/payables-page'
 import { SettlementPage } from '@/features/settlement/settlement-page'
 import { NotesPage } from '@/features/notes/notes-page'
+import { ReportingPage } from '@/features/reporting/reporting-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -33,7 +33,7 @@ export const router = createBrowserRouter([
   { path: '/bank-accounts', element: <BankAccountsPage /> },
   { path: '/tax', element: <TaxPage /> },
   { path: '/fx', element: <FxPage /> },
-  { path: '/reports', element: <ReportsPage /> },
+  { path: '/reports', element: <ReportingPage /> },
   { path: '/audit-log', element: <AuditLogPage /> },
   { path: '/settings', element: <SettingsPage /> },
 ])

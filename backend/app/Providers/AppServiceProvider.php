@@ -12,11 +12,13 @@ use App\Identity\Application\EntityReferenceQuery;
 use App\Identity\Infrastructure\EloquentApprovalPolicyQuery;
 use App\Identity\Infrastructure\EloquentEntityReferenceQuery;
 use App\Identity\Infrastructure\LaravelApprovalPayloadProtector;
+use App\Ledger\Application\AccountMovementQuery;
 use App\Ledger\Application\AccountReferenceQuery;
 use App\Ledger\Application\ForeignCurrencyPositionQuery;
 use App\Ledger\Application\RecognitionPostingService;
 use App\Ledger\Application\ReverseJournalApprovalHandler;
 use App\Ledger\Application\SettlementPostingService;
+use App\Ledger\Infrastructure\EloquentAccountMovementQuery;
 use App\Ledger\Infrastructure\EloquentAccountReferenceQuery;
 use App\Ledger\Infrastructure\EloquentForeignCurrencyPositionQuery;
 use App\Ledger\Infrastructure\EloquentRecognitionPostingService;
@@ -54,6 +56,23 @@ use App\Receivables\Application\OpenReceivableService;
 use App\Receivables\Infrastructure\EloquentCreditNoteQuery;
 use App\Receivables\Infrastructure\EloquentCreditNoteRepository;
 use App\Receivables\Infrastructure\EloquentOpenReceivableService;
+use App\Reporting\Application\AccountClassificationProvider;
+use App\Reporting\Application\AgeingBucketProvider;
+use App\Reporting\Application\CashViewPolicyProvider;
+use App\Reporting\Application\GeneralLedgerQuery;
+use App\Reporting\Application\ReportLayoutProvider;
+use App\Reporting\Application\ReportRunApprovalCommandHandler;
+use App\Reporting\Application\ReportRunRepository;
+use App\Reporting\Application\ReportRunService;
+use App\Reporting\Application\TrialBalanceQuery;
+use App\Reporting\Infrastructure\EloquentAccountClassificationProvider;
+use App\Reporting\Infrastructure\EloquentAgeingBucketProvider;
+use App\Reporting\Infrastructure\EloquentCashViewPolicyProvider;
+use App\Reporting\Infrastructure\EloquentReportLayoutProvider;
+use App\Reporting\Infrastructure\EloquentReportRunRepository;
+use App\Reporting\Infrastructure\LedgerGeneralLedgerQuery;
+use App\Reporting\Infrastructure\LedgerTrialBalanceQuery;
+use App\Reporting\Infrastructure\ReportingCloseGateProvider;
 use App\Settlement\Application\DocumentActivityQuery;
 use App\Settlement\Application\SettlementApprovalCommandHandler;
 use App\Settlement\Application\SettlementService;
@@ -85,12 +104,21 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(DebitNoteRepository::class, EloquentDebitNoteRepository::class);
         $this->app->bind(DebitNoteQuery::class, EloquentDebitNoteQuery::class);
         $this->app->bind(DocumentActivityQuery::class, EloquentDocumentActivityQuery::class);
+        $this->app->bind(AccountMovementQuery::class, EloquentAccountMovementQuery::class);
+        $this->app->bind(ReportRunRepository::class, EloquentReportRunRepository::class);
+        $this->app->bind(ReportLayoutProvider::class, EloquentReportLayoutProvider::class);
+        $this->app->bind(AccountClassificationProvider::class, EloquentAccountClassificationProvider::class);
+        $this->app->bind(AgeingBucketProvider::class, EloquentAgeingBucketProvider::class);
+        $this->app->bind(CashViewPolicyProvider::class, EloquentCashViewPolicyProvider::class);
+        $this->app->bind(TrialBalanceQuery::class, LedgerTrialBalanceQuery::class);
+        $this->app->bind(GeneralLedgerQuery::class, LedgerGeneralLedgerQuery::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
         $this->app->singleton(CloseGateProviderRegistry::class, function (): CloseGateProviderRegistry {
             $registry = new CloseGateProviderRegistry;
-            // M5 Reporting and M6 Reconciliation do not exist yet; every gate is honestly
-            // `unmet` until their real providers are implemented (API Contracts §12.7).
-            $registry->register('reporting', new UnavailableCloseGateProvider('reporting'));
+            // API Contracts §13.12: ReportingCloseGateProvider now supplies the four
+            // Reporting-owned gates. M6 Reconciliation does not exist yet, so
+            // bank_reconciliation_completed honestly stays `unmet` until it does.
+            $registry->register('reporting', $this->app->make(ReportingCloseGateProvider::class));
             $registry->register('reconciliation', new UnavailableCloseGateProvider('reconciliation'));
 
             return $registry;
@@ -127,5 +155,6 @@ final class AppServiceProvider extends ServiceProvider
         }
         $registry->register(new InvoiceVoidApprovalCommandHandler($this->app->make(InvoiceVoidService::class)));
         $registry->register(new BillVoidApprovalCommandHandler($this->app->make(BillVoidService::class)));
+        $registry->register(new ReportRunApprovalCommandHandler($this->app->make(ReportRunService::class)));
     }
 }

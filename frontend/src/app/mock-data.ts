@@ -20,13 +20,6 @@ export const accountingPeriods = [
   ['FY25-P11', '1 May 2026', '31 May 2026', 'Soft closed', 'Adjusting only'],
 ]
 
-export const trialBalanceRows = [
-  ['1010', 'Cash in Bank - NRB', 'BDT 12,800,000.0000', 'BDT 0.0000'],
-  ['1060', 'Accounts Receivable', 'BDT 9,840,000.0000', 'BDT 0.0000'],
-  ['2010', 'Accounts Payable', 'BDT 0.0000', 'BDT 3,180,000.0000'],
-  ['4010', 'Client Service Revenue', 'BDT 0.0000', 'BDT 19,460,000.0000'],
-]
-
 export const settlements = [
   ['RCPT-8831', 'Receipt', 'Northstar Digital', 'USD 9,000', 'USD 1,000 AIT', 'BDT 42,300 gain'],
   ['PMT-4419', 'Payment', 'Cloud Platform Ltd.', 'USD 1,240', '-', 'BDT 5,600 loss'],
@@ -43,13 +36,4 @@ export const auditRows = [
   ['14 Jul 2026 10:44', 'A. Rahman', 'InvoiceIssued', 'Receivables', 'corr-9f32'],
   ['14 Jul 2026 10:18', 'F. Manager', 'RoleAssigned', 'Identity', 'corr-7c14'],
   ['13 Jul 2026 16:02', 'System', 'JournalPosted', 'Ledger', 'corr-1a08'],
-]
-
-export const reports = [
-  ['Profit and Loss', 'Accrual / Cash', 'Performance'],
-  ['Balance Sheet', 'Balance', 'Financial position'],
-  ['Trial Balance', 'Accrual', 'Close review'],
-  ['General Ledger', 'Accrual', 'Account detail'],
-  ['AR Ageing', 'Accrual', 'Receivables'],
-  ['Tax Summary', 'Accrual', 'Compliance'],
 ]
