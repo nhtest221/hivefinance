@@ -61,7 +61,9 @@ use App\Reporting\Application\AgeingBucketProvider;
 use App\Reporting\Application\CashViewPolicyProvider;
 use App\Reporting\Application\GeneralLedgerQuery;
 use App\Reporting\Application\ReportLayoutProvider;
+use App\Reporting\Application\ReportRunApprovalCommandHandler;
 use App\Reporting\Application\ReportRunRepository;
+use App\Reporting\Application\ReportRunService;
 use App\Reporting\Application\TrialBalanceQuery;
 use App\Reporting\Infrastructure\EloquentAccountClassificationProvider;
 use App\Reporting\Infrastructure\EloquentAgeingBucketProvider;
@@ -151,5 +153,6 @@ final class AppServiceProvider extends ServiceProvider
         }
         $registry->register(new InvoiceVoidApprovalCommandHandler($this->app->make(InvoiceVoidService::class)));
         $registry->register(new BillVoidApprovalCommandHandler($this->app->make(BillVoidService::class)));
+        $registry->register(new ReportRunApprovalCommandHandler($this->app->make(ReportRunService::class)));
     }
 }

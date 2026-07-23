@@ -18,6 +18,7 @@ use App\Http\Controllers\Receivables\CreditNoteController;
 use App\Http\Controllers\Receivables\CustomerController;
 use App\Http\Controllers\Receivables\InvoiceController;
 use App\Http\Controllers\Reporting\ReportingController;
+use App\Http\Controllers\Reporting\ReportRunController;
 use App\Http\Controllers\Reports\LedgerReportController;
 use App\Http\Controllers\Settlement\SettlementController;
 use App\Http\Controllers\Tax\TaxController;
@@ -70,6 +71,11 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/reports/tax-summary', [ReportingController::class, 'taxSummary'])->name('reports.tax-summary');
     Route::get('/reports/fx-revaluation', [ReportingController::class, 'fxRevaluation'])->name('reports.fx-revaluation');
     Route::get('/reports/cash-view', [ReportingController::class, 'cashView'])->name('reports.cash-view');
+
+    Route::post('/report-runs', [ReportRunController::class, 'store'])->name('report-runs.store');
+    Route::get('/report-runs/{id}', [ReportRunController::class, 'show'])->name('report-runs.show');
+    Route::get('/report-runs', [ReportRunController::class, 'index'])->name('report-runs.index');
+    Route::post('/report-runs/{id}/approve', [ReportRunController::class, 'approve'])->name('report-runs.approve');
 
     Route::get('/tax/codes', [TaxController::class, 'index'])->name('tax.codes.index');
     Route::post('/tax/codes', [TaxController::class, 'store'])->name('tax.codes.store');
