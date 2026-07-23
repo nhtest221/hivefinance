@@ -1,23 +1,6 @@
 import { Card, CardContent, CardHeader, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
-import { accountingPeriods, auditRows, banks } from '../mock-data'
+import { accountingPeriods, auditRows } from '../mock-data'
 import { ModulePage } from './module-page'
-
-export function BankAccountsPage() {
-  return (
-    <ModulePage
-      title="Bank Accounts"
-      description="Ledger-owned bank account master and reconciliation status."
-      badge="Cash"
-      columns={['Account', 'Currency', 'Book balance', 'Reconciliation', 'Last reconciled']}
-      rows={banks}
-      summary={[
-        { label: 'Book cash', value: 'BDT 18.42M', meta: 'Across active accounts' },
-        { label: 'Foreign cash', value: 'USD 12.4K', meta: 'Subject to revaluation' },
-        { label: 'Pending imports', value: '2', meta: 'CSV statement placeholders' },
-      ]}
-    />
-  )
-}
 
 export function AuditLogPage() {
   return (

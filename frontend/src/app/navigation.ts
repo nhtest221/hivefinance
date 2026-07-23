@@ -38,7 +38,7 @@ export const navigationGroups = [
     label: 'Cash',
     items: [
       { label: 'Settlement', path: '/settlement', icon: Repeat2, shortcut: 'G S' },
-      { label: 'Bank Accounts', path: '/bank-accounts', icon: Landmark, shortcut: 'G B' },
+      { label: 'Reconciliation', path: '/bank-accounts', icon: Landmark, shortcut: 'G B' },
     ],
   },
   {

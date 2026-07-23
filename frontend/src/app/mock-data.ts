@@ -26,12 +26,6 @@ export const settlements = [
   ['RCPT-8827', 'Receipt', 'Orbit Labs', 'BDT 530,000', 'BDT 0', '-'],
 ]
 
-export const banks = [
-  ['NRB Current', 'BDT', 'BDT 12.8M', 'Reconciled', '30 Jun 2026'],
-  ['SCB', 'BDT', 'BDT 4.1M', 'Unreconciled', '28 Jun 2026'],
-  ['Payoneer', 'USD', 'USD 12,440', 'Matched', '29 Jun 2026'],
-]
-
 export const auditRows = [
   ['14 Jul 2026 10:44', 'A. Rahman', 'InvoiceIssued', 'Receivables', 'corr-9f32'],
   ['14 Jul 2026 10:18', 'F. Manager', 'RoleAssigned', 'Identity', 'corr-7c14'],
