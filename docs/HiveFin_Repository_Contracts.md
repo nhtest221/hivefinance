@@ -108,7 +108,7 @@ The repository loads only Period-owned state, transition history, copied accepte
 | **EntityRepository** (Identity) | GetById; Save | version | none | whole | isolation root | small |
 | **UserRepository** (Identity) | GetById; FindByEmail; Save | version | none | user + grants/roles refs | authz via service | index (email), (entityId) |
 | **RoleRepository** (Identity) | GetById; FindByEntity; Save | version | none | role + permissions | via Identity | small |
-| **BankReconciliationRepository** (Reconciliation) | GetById; FindByAccount; Save | version | none | reconciliation + lines | reads txns via queries; posts via app services | index (bankAccountId, period) |
+| **ReconciliationAccountRepository** (Reconciliation, `M6-GOV-001`) | GetById; FindByEntity; Save | version (config) | none | whole (no balance) | referenced by BankReconciliation and ReconciliationCloseGateProvider; never a second Ledger account | index (entityId, ledgerAccountId) |
 | **StagingBatchRepository** (Migration) | GetById; FindByMigrationId; Save | version | none | batch + staged records | final post via target app services | idempotent upsert by MigrationIdentifier |
 | **SequenceRepository** (Numbering) | **DrawNext(series, scope)**; RecordVoided; Reset | **serialized atomic** (not optimistic) | **atomic increment / short lock** | single counter | shared kernel; called by Rec/Pay/Settlement | ⚠ the one serialized hotspot; tiny row, fast |
 
@@ -158,7 +158,30 @@ ReportingCloseGateProvider implements CloseGateProvider   // Period-owned interf
 
 ---
 
-## 4. Cross-Context Access Rules (AP-001)
+## 4. Reconciliation — BankReconciliation (`M6-GOV-001`)
+
+```text
+BankReconciliationRepository
+  GetById(reconciliationId): BankReconciliation|null
+  FindCurrentCompleted(entityId, reconciliationAccountId, periodRef): BankReconciliation|null   // Close-Gate lookup (API Contracts §14.11)
+  Search(entityId, filters, cursor, limit): BankReconciliationPage
+  AddDraft(reconciliation): void
+  AppendImportedLines(reconciliationId, batch, lines, expectedVersion): ImportResult            // rejects duplicate-identity lines, never silently skips (§14.5)
+  ReplaceSuggestions(reconciliationId, lineId, suggestions, expectedLineVersion): void
+  CommitMatch(reconciliationId, lineId, allocationIds, expectedLineVersion): void
+  CommitConfirm(reconciliationId, lineId, expectedLineVersion): void                            // marks the consumed Allocation(s); a consumed Allocation cannot be reconciled twice
+  CommitBankOnlyResolution(reconciliationId, lineId, journalEntryId, expectedLineVersion): void  // called post-approval; entry itself is posted via Ledger PostingService, not here
+  CommitCompletion(reconciliationId, expectedVersion): void                                      // sets Completed, freezes source_data_watermark + content_hash, one UoW
+  CommitReopen(reconciliationId, expectedVersion): void                                          // sets Reopened; does not revert any line's own status
+
+ReconciliationCloseGateProvider implements CloseGateProvider   // Period-owned interface, unchanged (API Contracts §12.7, §14.11)
+```
+
+1. **Interface:** above. 2. **Persistence:** batch + its `StatementLine`s + their attached `MatchSuggestion`s as one bounded set; a `Reconciled` line and a `Completed` batch's frozen fields are protected at the store (Database Design `reconciliation`, PostgreSQL immutability triggers). 3. **Queries:** by account, period, state; `FindCurrentCompleted` serves `ReconciliationCloseGateProvider` exactly as `ReportRunRepository::FindCurrentApproved` serves `ReportingCloseGateProvider` (§3.2). 4. **Transaction boundary:** each command (`ImportStatement`, `MatchLine`, `ConfirmMatch`, `CompleteReconciliation`, `ReopenReconciliation`) commits in its own UoW; `CreateEntryForBankLine`'s approved commit additionally enlists Ledger's `PostingService` UoW for the new `JournalEntry`, coordinated by the Reconciliation application service (AP-001 — Reconciliation never opens Ledger's own transaction directly, it invokes the service). 5. **Optimistic concurrency:** the batch carries its own `version` (guards `CompleteReconciliation`/`ReopenReconciliation`); each `StatementLine` carries an independent `version` (guards `MatchLine`/`ConfirmMatch`/`CreateEntryForBankLine` on that line only, so concurrent work on different lines of the same batch never spuriously conflicts). 6. **Locking:** none. 7. **Loading:** whole reconciliation + lines + suggestions; match-candidate `Allocation`s are read through Settlement's own query contract, never loaded as part of this aggregate. 8. **Cross-context:** reads `Allocation` facts via Settlement's query contract and Ledger facts (staleness recheck, §14.11) via Ledger's query contracts; writes reach Ledger only through `PostingService` (AP-001) — never a direct `settlement_allocations`/`journal_lines`/`ledger_accounts` write. 9. **UoW:** owned by the Reconciliation application service (and jointly with Ledger's `PostingService` UoW for bank-only entries, per point 4). 10. **Performance:** duplicate-identity lookups indexed at the DB (Database Design `reconciliation`); match-suggestion generation batches its `Allocation` candidate query by `(reconciliationAccountId, currency, dateWindow)`, not per-line.
+
+---
+
+## 5. Cross-Context Access Rules (AP-001)
 
 - A context uses **only its own repositories.**
 - Cross-context **reads** → the owning context's **Query** (e.g., `GetOpenReceivable`).
@@ -167,7 +190,7 @@ ReportingCloseGateProvider implements CloseGateProvider   // Period-owned interf
 
 ---
 
-## 5. Unit of Work Boundaries (per flow)
+## 6. Unit of Work Boundaries (per flow)
 
 | Flow | Aggregates in one UoW | Owner |
 |---|---|---|
@@ -180,14 +203,15 @@ ReportingCloseGateProvider implements CloseGateProvider   // Period-owned interf
 | ReportRun generation | ReportRun (Generated) + audit/outbox | Reporting app service |
 | ReportRun approval | ReportRun (Approved, `reviewed_by`/`approved_by` set atomically) + supersession of the prior Approved run for the same key + audit/outbox | Reporting app service |
 | FX revaluation | RevaluationRun + JournalEntry(s) | FX/Period app service |
-| Reconciliation entry | BankReconciliation + (requested) JournalEntry | Reconciliation app service |
+| Bank-only entry (approved) | BankReconciliation (line resolved) + JournalEntry, posted via Ledger `PostingService` + audit/outbox | Reconciliation app service, jointly with Ledger |
+| Reconciliation completion | BankReconciliation (Completed, frozen `source_data_watermark`/`content_hash`) + audit/outbox | Reconciliation app service |
 | Migration final post | StagingBatch + target import services (idempotent, chunkable) | Migration app service |
 
 Projection/notification updates are **outside** these UoWs (eventual, via outbox events).
 
 ---
 
-## 6. Validation
+## 7. Validation
 - **Persistence-agnostic & no ORM in domain:** ✔ interfaces are domain verbs only.
 - **AP-001:** ✔ context-private repositories; cross-context via services; no foreign-aggregate returns.
 - **Consistency model honoured:** ✔ UoW = the frozen transactional boundaries; strong where required, eventual otherwise.

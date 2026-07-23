@@ -505,3 +505,35 @@ On trigger: `details` identifies only the unavailable source category and readin
 This clarification defines the trigger and non-trigger conditions and the side-effect-free failure contract for an already-declared M5 rule. It introduces no new endpoint, state, `ReportRun` field, event, or application implementation beyond what §13 already specifies, and changes no other M5-GOV-001 rule.
 
 **Traceability:** API Contracts §13.4, §13.15, §13.16; Governance Approval Record `M5-GOV-001`; Engineering Constitution ERR-01 through ERR-04 (ERR-04: internal detail stays server-side) and ERR-05 (idempotent retries); the frozen idempotency-replay contract (§1–§3).
+
+---
+
+## Governance Approval Record — M6-GOV-001
+
+**Status:** APPROVED
+**Date:** 23 July 2026
+**Approved artifact:** nine explicit Product Owner decisions on the open items raised during M6 governance research (no prior written proposal existed — the Context Interaction Matrix, Domain Model, Aggregate Design §13, and Database Design `reconciliation` schema supplied the architectural skeleton; this record supplies the missing implementable contract).
+
+The canonical milestone name is **M6 — Reconciliation**. The approval freezes 16 public endpoints: four `ReconciliationAccount` configuration endpoints and twelve `BankReconciliation` lifecycle/matching/export endpoints (API Contracts §14).
+
+**Bank-account identity (item 1).** `ReconciliationAccount` is Reconciliation-owned configuration only — `bank_account_id`, `entity_id`, `ledger_account_id` (references exactly one existing asset-type `LedgerAccount`), `currency`, `display_name`, `masked_bank_identifier`, `reconciliation_enabled`, `version`. No second accounting account; no duplicated Ledger balance.
+
+**Match candidates (item 2).** Statement lines match against posted M3 Settlement `Allocation` rows and their immutable Ledger-posting references — never arbitrary journal lines, except an approved bank-only entry's own posted entry (validation/drill-down reference for the line it resolved) and read-only drill-down display of a matched allocation's own posting.
+
+**Matching algorithm (item 3).** Exact currency, exact amount, transaction date within ±3 calendar days, normalized reference comparison as a ranking signal only. Automatic matching (`GenerateMatchSuggestions`) creates suggestions only — it never confirms or finalizes. One-to-one, one-to-many, and many-to-one suggestions only, and only when the grouped total reconciles exactly. No tolerance matching, no fuzzy amount matching, no hidden write-off.
+
+**State model (item 4).** Statement-line states: `Unreconciled`, `Suggested`, `Matched`, `Reconciled`, `Unexplained`. Batch states: `Draft`, `InProgress`, `PendingCompletionApproval`, `Completed`, `Reopened`. `Unexplained` lines block completion; there is no force-close and no unexplained-balance bypass. An `Unexplained` line is resolved only through an approved existing-transaction match or an approved bank-only entry. Completion requires every line `Reconciled`, statement closing balance equal to the reconciled system balance, and unexplained difference exactly zero.
+
+**Bank-only entries (item 5).** The offset `LedgerAccount` is always explicitly, manually selected — never inferred or defaulted. Creating a bank-only entry requires durable four-eyes approval and posts through Ledger's `PostingService`, preserving statement-line linkage, audit, outbox, idempotency, and the standard reversal trail.
+
+**Duplicate and overlapping imports (item 6).** Duplicate statement lines are rejected, never silently skipped. Duplicate identity: entity, bank account, transaction date, exact amount, currency, normalized narration, and external bank reference when supplied (null-safe comparison, not a naive nullable unique index). Import-file hash and source-line identity are preserved. Returned conflicts are line-level and safe (no cross-entity data). Exact idempotency replay remains successful and side-effect free.
+
+**Multi-currency scope (item 7).** Foreign-currency statements are included in M6. Matching occurs only within the same transaction currency — no FX amount tolerance, no cross-currency matching. Bank-only entry conversion or functional valuation, where required, uses immutable `RateRecord` references (ADR-007), unchanged. Period-end FX revaluation remains M1/`CurrencyFx`-owned.
+
+**Hard Close evidence (item 8).** Only `ReconciliationAccount`s configured with `reconciliation_enabled=true` are mandatory; each requires a current `Completed` reconciliation for the period. Evidence becomes stale on a later relevant event affecting that account and period — new bank posting, reversed bank posting, settlement, bank-only entry, or imported-statement change. M6 implements only `bank_reconciliation_completed`; it satisfies no Reporting-owned gate.
+
+**Approval policy (item 9).** Mandatory durable four-eyes approval applies to `CreateEntryForBankLine`, `CompleteReconciliation`, and `ReopenReconciliation` — unconditionally, matching M4 Hard Close's mandatory pattern, not M2–M5's policy-conditional pattern. `ImportStatement`, `GenerateMatchSuggestions`, `MatchLine`, and `ConfirmMatch` are not maker-checker-eligible but still enforce capability checks, entity isolation, idempotency, concurrency, audit, and outbox behavior where applicable.
+
+This approval changes no M0–M5 public contract, ADR text, Architecture Principle, Engineering Constitution rule, or the M4 `CloseGateProvider` v1 interface; implements no M7 endpoint; and introduces no consolidation/CTA behavior, no second Ledger, no cross-currency or tolerance matching, no inferred accounting classification, no maker-checker bypass, and no Hard Close bypass.
+
+**Traceability:** Implementation Roadmap M6; API Contracts §14; Aggregate Design §13 (`BankReconciliation`, expanded); Database Design `reconciliation` schema (expanded); Repository Contracts `BankReconciliationRepository` (expanded to full treatment); Domain Events "Reconciliation" schemas (expanded); Context Interaction Matrix §9; M3 `settlement_allocations.bank_account_id`/`bank_amount`; M4 `CloseGateProvider` v1 (`config/period.close_gates`); Engineering Constitution ARCH-02 through ARCH-05, DOM-07, REPO-05, API-01 through API-07, DB-02 through DB-06, and ERR-01 through ERR-05.
