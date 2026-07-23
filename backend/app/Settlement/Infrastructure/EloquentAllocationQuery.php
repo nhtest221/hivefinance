@@ -3,7 +3,9 @@
 namespace App\Settlement\Infrastructure;
 
 use App\Models\Settlement\Allocation;
+use App\Models\Settlement\PartyCreditBalance;
 use App\Settlement\Application\AllocationQuery;
+use App\Support\Documents\ExactDecimal;
 use Illuminate\Support\Collection;
 
 final class EloquentAllocationQuery implements AllocationQuery
@@ -60,5 +62,15 @@ final class EloquentAllocationQuery implements AllocationQuery
             ->max('posted_at');
 
         return is_string($max) ? $max : null;
+    }
+
+    public function partyCreditBalanceTotal(string $entityId, string $partyType, string $partyId): string
+    {
+        return PartyCreditBalance::query()
+            ->where('entity_id', $entityId)
+            ->where('party_type', $partyType)
+            ->where('party_id', $partyId)
+            ->get()
+            ->reduce(fn (string $sum, PartyCreditBalance $balance): string => ExactDecimal::add($sum, $balance->available_balance), '0.0000');
     }
 }

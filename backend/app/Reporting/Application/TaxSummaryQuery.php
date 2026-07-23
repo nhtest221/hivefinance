@@ -3,12 +3,10 @@
 namespace App\Reporting\Application;
 
 use App\Identity\Application\EntityReferenceQuery;
-use App\Models\Payables\Bill;
-use App\Models\Payables\DebitNote;
-use App\Models\Receivables\CreditNote;
-use App\Models\Receivables\Invoice;
 use App\Models\User;
+use App\Payables\Application\PayablesReportQuery;
 use App\Period\Application\PeriodQuery;
+use App\Receivables\Application\ReceivablesReportQuery;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentCommandSupport;
 use App\Support\Documents\ExactDecimal;
@@ -16,10 +14,17 @@ use App\Support\Documents\ExactDecimal;
 /**
  * API Contracts §13.10: aggregates already-immutable TaxSnapshot records by their
  * already-frozen return_box_mapping keys (ADR-006) — no filing form or rate invented.
+ * Receivables and Payables continue to own their reads (AP-001).
  */
 final readonly class TaxSummaryQuery
 {
-    public function __construct(private DocumentCommandSupport $commands, private PeriodQuery $periods, private EntityReferenceQuery $entities) {}
+    public function __construct(
+        private DocumentCommandSupport $commands,
+        private PeriodQuery $periods,
+        private EntityReferenceQuery $entities,
+        private ReceivablesReportQuery $receivables,
+        private PayablesReportQuery $payables,
+    ) {}
 
     public function fetch(User $actor, string $entityId, string $periodRef): DocumentActionResult
     {
@@ -38,30 +43,28 @@ final readonly class TaxSummaryQuery
         $boxes = [];
         $jurisdiction = null;
 
-        $invoices = Invoice::query()->where('entity_id', $entityId)->whereIn('status', ['sent', 'partially_paid', 'paid'])
-            ->whereBetween('invoice_date', [$from, $to])->with('lines')->get();
+        $invoices = $this->receivables->invoicesWithLinesInRange($entityId, $from, $to);
         foreach ($invoices as $invoice) {
             foreach ($invoice->lines as $line) {
                 $this->accumulate($invoice->id, $line->tax_snapshot, $line->tax_amount, true, $outputVat, $inputVat, $boxes, $jurisdiction);
             }
         }
 
-        $creditNotes = CreditNote::query()->where('entity_id', $entityId)->where('state', 'posted')->where('period_ref', $periodRef)->with('lines')->get();
+        $creditNotes = $this->receivables->postedCreditNotesWithLinesForPeriod($entityId, $periodRef);
         foreach ($creditNotes as $note) {
             foreach ($note->lines as $line) {
                 $this->accumulate($note->id, $line->tax_snapshot, $line->tax_amount, true, $outputVat, $inputVat, $boxes, $jurisdiction);
             }
         }
 
-        $bills = Bill::query()->where('entity_id', $entityId)->whereIn('status', ['awaiting_payment', 'partially_paid', 'paid'])
-            ->whereBetween('bill_date', [$from, $to])->with('lines')->get();
+        $bills = $this->payables->billsWithLinesInRange($entityId, $from, $to);
         foreach ($bills as $bill) {
             foreach ($bill->lines as $line) {
                 $this->accumulate($bill->id, $line->tax_snapshot, $line->tax_amount, false, $outputVat, $inputVat, $boxes, $jurisdiction);
             }
         }
 
-        $debitNotes = DebitNote::query()->where('entity_id', $entityId)->where('state', 'posted')->where('period_ref', $periodRef)->with('lines')->get();
+        $debitNotes = $this->payables->postedDebitNotesWithLinesForPeriod($entityId, $periodRef);
         foreach ($debitNotes as $note) {
             foreach ($note->lines as $line) {
                 $this->accumulate($note->id, $line->tax_snapshot, $line->tax_amount, false, $outputVat, $inputVat, $boxes, $jurisdiction);

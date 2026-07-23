@@ -6,9 +6,11 @@ use App\Models\Settlement\Allocation;
 use Illuminate\Support\Collection;
 
 /**
- * Internal Settlement-owned contract for Reconciliation's match-candidate search (API
- * Contracts §14.6, §14.13). Settlement continues to own `settlement_allocations` reads;
- * Reconciliation never queries the table directly (AP-001).
+ * Internal Settlement-owned contract for cross-context reads of settlement_allocations
+ * and settlement_party_credit_balances (AP-001): Reconciliation's match-candidate search
+ * (API Contracts §14.6, §14.13) and Reporting's Cash View / watermark / AR-AP ageing
+ * (§13.9, §13.11, §13.12). Settlement continues to own these tables; no other context
+ * queries them directly.
  */
 interface AllocationQuery
 {
@@ -41,4 +43,8 @@ interface AllocationQuery
     /** Latest posted_at among posted allocations, entity-scoped, optionally bounded by
      * settlement_date — feeds Reporting's source-data watermark (API Contracts §13.4/§13.12). */
     public function latestPostedAt(string $entityId, ?string $to): ?string;
+
+    /** Sum of available_balance across PartyCreditBalance rows for one party — the
+     * unapplied-credit component of AR/AP ageing (API Contracts §13.9). */
+    public function partyCreditBalanceTotal(string $entityId, string $partyType, string $partyId): string;
 }
