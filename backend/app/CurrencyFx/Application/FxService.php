@@ -187,7 +187,12 @@ final readonly class FxService
         if ($target === null || $target->state !== 'Open') {
             return false;
         }
-        DB::transaction(function () use ($run, $entityId, $actorId, $target): void {
+
+        return DB::transaction(function () use ($entityId, $runId, $actorId, $target): bool {
+            $run = RevaluationRun::query()->where('entity_id', $entityId)->whereKey($runId)->lockForUpdate()->first();
+            if (! $run instanceof RevaluationRun || $run->status !== 'posted' || $run->reversal_status !== 'scheduled' || $run->target_period_ref === null) {
+                return false;
+            }
             $ids = $this->posting->reverseRevaluation($entityId, $target->id, $target->period_ref, $target->starts_on->toDateString(), $run->id, $actorId, $run->journal_entry_ids);
             $run->status = 'reversed';
             $run->reversal_status = 'posted';
@@ -197,9 +202,9 @@ final readonly class FxService
             $run->save();
             $this->audit->record('fx', 'revaluation_reversed', 'revaluation_run', $run->id, $actorId, $entityId, after: self::presentRun($run));
             $this->outbox->record('RevaluationReversed', 'RevaluationRun', $run->id, ['runId' => $run->id], $entityId);
-        });
 
-        return true;
+            return true;
+        });
     }
 
     /** @return array<string, mixed> */

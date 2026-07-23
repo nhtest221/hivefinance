@@ -182,6 +182,10 @@ it('posts and links the configured next-period revaluation reversal', function (
         ->and($reversalLines->pluck('debit')->all())->toBe($originalLines->pluck('credit')->all())
         ->and($reversalLines->pluck('credit')->all())->toBe($originalLines->pluck('debit')->all())
         ->and(OutboxMessage::query()->where('event_type', 'RevaluationReversed')->exists())->toBeTrue();
+
+    // A second reversal attempt on the same run is rejected — it is no longer 'scheduled'.
+    expect(app(FxService::class)->reverseRevaluation($entity->id, $run['id'], $maker->id))->toBeFalse()
+        ->and(OutboxMessage::query()->where('event_type', 'RevaluationReversed')->count())->toBe(1);
 });
 
 it('routes configured journal reversal through durable maker checker approval', function (): void {
