@@ -72,6 +72,7 @@ use App\Reporting\Infrastructure\EloquentReportLayoutProvider;
 use App\Reporting\Infrastructure\EloquentReportRunRepository;
 use App\Reporting\Infrastructure\LedgerGeneralLedgerQuery;
 use App\Reporting\Infrastructure\LedgerTrialBalanceQuery;
+use App\Reporting\Infrastructure\ReportingCloseGateProvider;
 use App\Settlement\Application\DocumentActivityQuery;
 use App\Settlement\Application\SettlementApprovalCommandHandler;
 use App\Settlement\Application\SettlementService;
@@ -114,9 +115,10 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ApprovalCommandRegistry::class);
         $this->app->singleton(CloseGateProviderRegistry::class, function (): CloseGateProviderRegistry {
             $registry = new CloseGateProviderRegistry;
-            // M5 Reporting and M6 Reconciliation do not exist yet; every gate is honestly
-            // `unmet` until their real providers are implemented (API Contracts §12.7).
-            $registry->register('reporting', new UnavailableCloseGateProvider('reporting'));
+            // API Contracts §13.12: ReportingCloseGateProvider now supplies the four
+            // Reporting-owned gates. M6 Reconciliation does not exist yet, so
+            // bank_reconciliation_completed honestly stays `unmet` until it does.
+            $registry->register('reporting', $this->app->make(ReportingCloseGateProvider::class));
             $registry->register('reconciliation', new UnavailableCloseGateProvider('reconciliation'));
 
             return $registry;

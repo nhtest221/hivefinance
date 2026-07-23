@@ -8,10 +8,9 @@ use App\Identity\Application\ApprovalPolicyQuery;
 use App\Identity\Application\EntityReferenceQuery;
 use App\Identity\Domain\OriginatingCommand;
 use App\Ledger\Application\LedgerActionResult;
-use App\Models\Ledger\JournalEntry;
 use App\Models\Reporting\ReportRun;
-use App\Models\Settlement\Allocation;
 use App\Models\User;
+use App\Period\Application\PeriodQuery;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentCommandSupport;
@@ -38,6 +37,8 @@ final readonly class ReportRunService
         private AuditLogger $audit,
         private Outbox $outbox,
         private EntityReferenceQuery $entities,
+        private PeriodQuery $periods,
+        private SourceDataWatermarkCalculator $watermarks,
         private TrialBalanceQuery $trialBalanceQuery,
         private GeneralLedgerQuery $generalLedgerQuery,
         private ProfitAndLossQuery $profitAndLossQuery,
@@ -77,7 +78,8 @@ final readonly class ReportRunService
             return $computed;
         }
 
-        $watermark = $this->watermark($entityId, $computed['basis'], $computed['rangeFrom'], $computed['rangeTo']);
+        $watermarkTo = $asOf ?? $computed['rangeTo'] ?? $this->periods->show($entityId, (string) $periodRef)?->ends_on->toDateString();
+        $watermark = $this->watermarks->forBasis($entityId, $computed['basis'], $watermarkTo);
         $currency = $this->entities->functionalCurrency($entityId) ?? '';
         $contentHash = hash('sha256', json_encode($computed['content'], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
 
@@ -287,21 +289,6 @@ final readonly class ReportRunService
             : ($hasPolicy && is_int($result->payload['policy_version'] ?? null) ? $result->payload['policy_version'] : null);
 
         return ['content' => $result->payload, 'basis' => $basis, 'layoutVersion' => $layoutVersion, 'classificationVersion' => $classificationVersion, 'policyVersion' => $policyVersion, 'rangeFrom' => null, 'rangeTo' => null];
-    }
-
-    private function watermark(string $entityId, string $basis, ?string $from, ?string $to): Carbon
-    {
-        if ($basis === 'cash') {
-            $max = Allocation::query()->where('entity_id', $entityId)->where('state', 'posted')
-                ->when($to !== null, fn ($q) => $q->whereDate('settlement_date', '<=', $to))
-                ->max('posted_at');
-        } else {
-            $max = JournalEntry::query()->where('entity_id', $entityId)->where('state', 'posted')
-                ->when($to !== null, fn ($q) => $q->whereDate('entry_date', '<=', $to))
-                ->max('posted_at');
-        }
-
-        return is_string($max) ? Carbon::parse($max, 'UTC') : Carbon::now('UTC');
     }
 
     /** @return array<string, mixed> */
