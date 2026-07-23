@@ -3,10 +3,11 @@
 namespace App\Reporting\Application;
 
 use App\Identity\Application\EntityReferenceQuery;
-use App\Models\Ledger\JournalLine;
+use App\Ledger\Application\AccountMovementQuery;
 use App\Models\Settlement\Allocation;
 use App\Models\User;
 use App\Period\Application\PeriodQuery;
+use App\Settlement\Application\AllocationQuery;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentCommandSupport;
 use App\Support\Documents\ExactDecimal;
@@ -26,6 +27,8 @@ final readonly class CashViewQuery
         private PeriodQuery $periods,
         private CashViewPolicyProvider $policies,
         private EntityReferenceQuery $entities,
+        private AllocationQuery $allocationQuery,
+        private AccountMovementQuery $movements,
     ) {}
 
     public function fetch(User $actor, string $entityId, string $periodRef, ?string $sbu): DocumentActionResult
@@ -49,15 +52,13 @@ final readonly class CashViewQuery
         // Allocation already represents exactly one settled tranche (M3), so summing
         // posted Allocations within [from, to] by settlement_date directly implements
         // both rules without re-deriving partial-payment proportions.
-        $allocations = Allocation::query()->where('entity_id', $entityId)->where('state', 'posted')
-            ->whereBetween('settlement_date', [$from, $to])
-            ->get();
+        $allocations = $this->allocationQuery->postedWithinSettlementDateRange($entityId, $from, $to);
 
         if ($sbu !== null) {
             // SBU allocation follows the source document's exact-sum split as already
             // posted into the settlement journal entry's per-SBU lines (journal_lines.sbu_tag) —
             // the same mechanism TB/GL/P&L/BS already use; no separate SBU rule is invented.
-            $taggedEntryIds = JournalLine::query()->where('entity_id', $entityId)->where('sbu_tag', $sbu)->pluck('journal_entry_id')->all();
+            $taggedEntryIds = $this->movements->journalEntryIdsTaggedWithSbu($entityId, $sbu);
             $allocations = $allocations->filter(fn (Allocation $allocation): bool => array_intersect($allocation->journal_entry_ids, $taggedEntryIds) !== []);
         }
 
@@ -72,7 +73,7 @@ final readonly class CashViewQuery
                 'receipt' => $collections = ExactDecimal::add($collections, $bank),
                 'payment' => $payments = ExactDecimal::add($payments, $bank),
                 'credit_refund' => $refunds = ExactDecimal::subtract($refunds, $bank),
-                'reversal' => $this->applyReversal($allocation, $bank, $collections, $payments, $refunds),
+                'reversal' => $this->applyReversal($entityId, $allocation, $bank, $collections, $payments, $refunds),
                 default => null,
             };
             if (ExactDecimal::compare($allocation->unapplied_amount, '0.0000') !== 0) {
@@ -101,9 +102,11 @@ final readonly class CashViewQuery
         ]);
     }
 
-    private function applyReversal(Allocation $reversal, string $bank, string &$collections, string &$payments, string &$refunds): void
+    private function applyReversal(string $entityId, Allocation $reversal, string $bank, string &$collections, string &$payments, string &$refunds): void
     {
-        $original = $reversal->reversal_of_id !== null ? Allocation::query()->find($reversal->reversal_of_id) : null;
+        $original = $reversal->reversal_of_id !== null
+            ? $this->allocationQuery->findByIds($entityId, [$reversal->reversal_of_id])->first()
+            : null;
         match ($original?->operation) {
             'receipt' => $collections = ExactDecimal::subtract($collections, $bank),
             'payment' => $payments = ExactDecimal::subtract($payments, $bank),

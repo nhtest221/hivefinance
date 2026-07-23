@@ -3,6 +3,7 @@
 namespace App\Ledger\Infrastructure;
 
 use App\Ledger\Application\AccountMovementQuery;
+use App\Models\Ledger\JournalEntry;
 use App\Models\Ledger\JournalLine;
 use App\Support\Documents\ExactDecimal;
 
@@ -32,5 +33,30 @@ final class EloquentAccountMovementQuery implements AccountMovementQuery
         }
 
         return $totals;
+    }
+
+    public function latestPostedAt(string $entityId, ?string $to): ?string
+    {
+        $max = JournalEntry::query()
+            ->where('entity_id', $entityId)
+            ->where('state', 'posted')
+            ->when($to !== null, fn ($query) => $query->whereDate('entry_date', '<=', $to))
+            ->max('posted_at');
+
+        return is_string($max) ? $max : null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function journalEntryIdsTaggedWithSbu(string $entityId, string $sbu): array
+    {
+        return JournalLine::query()
+            ->where('entity_id', $entityId)
+            ->where('sbu_tag', $sbu)
+            ->pluck('journal_entry_id')
+            ->unique()
+            ->values()
+            ->all();
     }
 }

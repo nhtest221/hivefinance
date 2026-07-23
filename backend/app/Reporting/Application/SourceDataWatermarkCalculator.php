@@ -2,8 +2,8 @@
 
 namespace App\Reporting\Application;
 
-use App\Models\Ledger\JournalEntry;
-use App\Models\Settlement\Allocation;
+use App\Ledger\Application\AccountMovementQuery;
+use App\Settlement\Application\AllocationQuery;
 use Illuminate\Support\Carbon;
 
 /**
@@ -11,21 +11,23 @@ use Illuminate\Support\Carbon;
  * included in a report's computed content, captured at generation time and recomputed
  * at Close-Gate evaluation time to detect stale evidence. Single source of truth shared
  * by ReportRunService (freeze) and ReportingCloseGateProvider (staleness check).
+ *
+ * Ledger and Settlement continue to own their respective posted-fact reads; Reporting
+ * never queries journal_entries or settlement_allocations directly (AP-001).
  */
 final readonly class SourceDataWatermarkCalculator
 {
+    public function __construct(
+        private AccountMovementQuery $movements,
+        private AllocationQuery $allocations,
+    ) {}
+
     public function forBasis(string $entityId, string $basis, ?string $to): Carbon
     {
-        if ($basis === 'cash') {
-            $max = Allocation::query()->where('entity_id', $entityId)->where('state', 'posted')
-                ->when($to !== null, fn ($q) => $q->whereDate('settlement_date', '<=', $to))
-                ->max('posted_at');
-        } else {
-            $max = JournalEntry::query()->where('entity_id', $entityId)->where('state', 'posted')
-                ->when($to !== null, fn ($q) => $q->whereDate('entry_date', '<=', $to))
-                ->max('posted_at');
-        }
+        $max = $basis === 'cash'
+            ? $this->allocations->latestPostedAt($entityId, $to)
+            : $this->movements->latestPostedAt($entityId, $to);
 
-        return is_string($max) ? Carbon::parse($max, 'UTC') : Carbon::now('UTC');
+        return $max !== null ? Carbon::parse($max, 'UTC') : Carbon::now('UTC');
     }
 }
