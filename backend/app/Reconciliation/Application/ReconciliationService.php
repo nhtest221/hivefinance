@@ -232,8 +232,8 @@ final readonly class ReconciliationService
         if (! is_array($allocationIds) || $allocationIds === []) {
             return $this->commands->error('validation', 'allocation_ids is required.', 400);
         }
-        $allocationIds = array_map('strval', $allocationIds);
-        $lineIds = array_unique(array_map('strval', $data['line_ids'] ?? [$lineId]));
+        $allocationIds = array_map(strval(...), $allocationIds);
+        $lineIds = array_unique(array_map(strval(...), $data['line_ids'] ?? [$lineId]));
         if (! in_array($lineId, $lineIds, true)) {
             $lineIds[] = $lineId;
         }

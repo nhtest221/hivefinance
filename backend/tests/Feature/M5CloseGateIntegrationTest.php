@@ -5,6 +5,7 @@ use App\Models\Identity\Role;
 use App\Models\Ledger\JournalEntry;
 use App\Models\Ledger\LedgerAccount;
 use App\Models\Period\AccountingPeriod;
+use App\Models\Reconciliation\ReconciliationAccount;
 use App\Models\Reporting\AccountClassificationVersion;
 use App\Models\Reporting\ReportLayoutVersion;
 use App\Models\User;
@@ -92,7 +93,7 @@ it('unlocks Hard Close for the four Reporting gates once each ReportRun is appro
     // BankReconciliation keeps bank_reconciliation_completed genuinely unmet (API Contracts
     // §14.11) - without this, M6-GOV-001's vacuous-satisfaction rule would satisfy it by
     // default, defeating this test's purpose of proving Reporting gates alone are insufficient.
-    App\Models\Reconciliation\ReconciliationAccount::query()->create(['entity_id' => $entity->id, 'ledger_account_id' => LedgerAccount::query()->where('entity_id', $entity->id)->where('code', '1010')->value('id'), 'currency' => 'BDT', 'display_name' => 'Cash', 'reconciliation_enabled' => true, 'version' => 1]);
+    ReconciliationAccount::query()->create(['entity_id' => $entity->id, 'ledger_account_id' => LedgerAccount::query()->where('entity_id', $entity->id)->where('code', '1010')->value('id'), 'currency' => 'BDT', 'display_name' => 'Cash', 'reconciliation_enabled' => true, 'version' => 1]);
     ReportLayoutVersion::query()->create(['entity_id' => $entity->id, 'report_type' => 'profit_and_loss', 'version_number' => 1, 'sections' => [], 'effective_from' => '2026-01-01', 'effective_to' => null]);
     ReportLayoutVersion::query()->create(['entity_id' => $entity->id, 'report_type' => 'balance_sheet', 'version_number' => 1, 'sections' => [], 'effective_from' => '2026-01-01', 'effective_to' => null]);
     AccountClassificationVersion::query()->create(['entity_id' => $entity->id, 'version_number' => 1, 'entries' => [
