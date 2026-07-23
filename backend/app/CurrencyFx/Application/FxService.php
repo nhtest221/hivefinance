@@ -123,7 +123,8 @@ final readonly class FxService
             return $this->error('period_locked', 'Revaluation requires a Soft Close period.', 423);
         }
         foreach (['source_precedence', 'rounding_mode', 'rounding_scale', 'unrealised_gain_account_id', 'unrealised_loss_account_id'] as $setting) {
-            if (config('valuation.fx.'.$setting) === null || config('valuation.fx.'.$setting) === []) {
+            $value = config('valuation.fx.'.$setting);
+            if ($value === null || $value === [] || $value === '') {
                 return $this->error('invariant_violation', 'Required revaluation policy is not configured.', 422, ['rule' => 'missing_period_end_rate', 'configuration' => $setting]);
             }
         }
