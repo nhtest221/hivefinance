@@ -76,6 +76,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/report-runs/{id}', [ReportRunController::class, 'show'])->name('report-runs.show');
     Route::get('/report-runs', [ReportRunController::class, 'index'])->name('report-runs.index');
     Route::post('/report-runs/{id}/approve', [ReportRunController::class, 'approve'])->name('report-runs.approve');
+    Route::get('/report-runs/{id}/export', [ReportRunController::class, 'export'])->name('report-runs.export');
 
     Route::get('/tax/codes', [TaxController::class, 'index'])->name('tax.codes.index');
     Route::post('/tax/codes', [TaxController::class, 'store'])->name('tax.codes.store');

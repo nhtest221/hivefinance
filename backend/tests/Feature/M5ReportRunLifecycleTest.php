@@ -112,12 +112,49 @@ it('rejects generation for an unknown report_type and approval of an already-app
         ->assertJsonPath('error_code', 'report_run_not_approved');
 });
 
-it('registers exactly the 13 M5 endpoints implemented so far (9 report queries + 4 ReportRun commands; export is added in Phase 5, bringing the frozen total to 14)', function (): void {
+it('registers exactly the 14 frozen M5 public endpoints', function (): void {
     $routes = collect(app('router')->getRoutes()->getRoutes())
         ->map(fn ($route): string => implode('|', $route->methods()).' /'.$route->uri())
-        ->filter(fn (string $route): bool => (bool) preg_match('#/v1/(reports/(trial-balance|general-ledger|profit-loss|balance-sheet|ar-ageing|ap-ageing|tax-summary|fx-revaluation|cash-view)$|report-runs(/\{id\}(/approve)?)?$)#', $route))
+        ->filter(fn (string $route): bool => (bool) preg_match('#/v1/(reports/(trial-balance|general-ledger|profit-loss|balance-sheet|ar-ageing|ap-ageing|tax-summary|fx-revaluation|cash-view)$|report-runs(/\{id\}(/approve|/export)?)?$)#', $route))
         ->unique()
         ->values();
 
-    expect($routes)->toHaveCount(13);
+    expect($routes)->toHaveCount(14);
+});
+
+it('exports an immutable ReportRun snapshot as CSV and PDF without recalculating, and rejects xlsx', function (): void {
+    [$entity, $generator, $checker] = m5RunActors();
+    Sanctum::actingAs($generator);
+    $run = $this->postJson('/v1/report-runs', ['report_type' => 'trial_balance', 'as_of' => '2026-07-31'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('report_run');
+    Sanctum::actingAs($checker);
+    $this->postJson('/v1/report-runs/'.$run['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertOk();
+
+    $csv = $this->get('/v1/report-runs/'.$run['id'].'/export?format=csv', ['X-Entity-Id' => $entity->id])
+        ->assertOk()
+        ->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+    expect($csv->content())->toContain('report_type', 'trial_balance', $run['content_hash'], 'Approved');
+
+    $pdf = $this->get('/v1/report-runs/'.$run['id'].'/export?format=pdf', ['X-Entity-Id' => $entity->id])
+        ->assertOk()
+        ->assertHeader('Content-Type', 'application/pdf');
+    expect(substr($pdf->content(), 0, 4))->toBe('%PDF');
+
+    $this->get('/v1/report-runs/'.$run['id'].'/export?format=xlsx', ['X-Entity-Id' => $entity->id])
+        ->assertStatus(400);
+});
+
+it('allows exporting a superseded run for historical audit but visibly states its state', function (): void {
+    [$entity, $generator, $checker] = m5RunActors();
+    Sanctum::actingAs($generator);
+    $first = $this->postJson('/v1/report-runs', ['report_type' => 'trial_balance', 'as_of' => '2026-07-31'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('report_run');
+    Sanctum::actingAs($checker);
+    $this->postJson('/v1/report-runs/'.$first['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertOk();
+
+    Sanctum::actingAs($generator);
+    $second = $this->postJson('/v1/report-runs', ['report_type' => 'trial_balance', 'as_of' => '2026-07-31'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('report_run');
+    Sanctum::actingAs($checker);
+    $this->postJson('/v1/report-runs/'.$second['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertOk();
+
+    $csv = $this->get('/v1/report-runs/'.$first['id'].'/export?format=csv', ['X-Entity-Id' => $entity->id])->assertOk();
+    expect($csv->content())->toContain('Superseded');
 });

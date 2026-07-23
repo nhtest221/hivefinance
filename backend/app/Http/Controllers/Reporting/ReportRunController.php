@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Reporting;
 
 use App\Http\Requests\Reporting\ReportRunRequest;
+use App\Reporting\Application\ReportRunExportService;
 use App\Reporting\Application\ReportRunService;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentQuery;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
 final class ReportRunController
 {
@@ -39,6 +41,23 @@ final class ReportRunController
         $v = DocumentQuery::validate($r, ['report_type' => ['nullable', 'string'], 'period' => ['nullable', 'string'], 'state' => ['nullable', 'in:Generated,PendingApproval,Approved,Rejected,Superseded'], 'limit' => ['nullable', 'integer', 'between:1,100'], 'cursor' => ['nullable', 'string']]);
 
         return $v instanceof DocumentActionResult ? $this->response($v) : $this->response($s->list($r->user(), (string) $r->header('X-Entity-Id'), $v));
+    }
+
+    public function export(Request $r, ReportRunExportService $s, string $id): JsonResponse|Response
+    {
+        $v = DocumentQuery::validate($r, ['format' => ['required', 'in:pdf,csv']]);
+        if ($v instanceof DocumentActionResult) {
+            return $this->response($v);
+        }
+        $result = $s->export($r->user(), (string) $r->header('X-Entity-Id'), $id, (string) $v['format']);
+        if ($result instanceof DocumentActionResult) {
+            return $this->response($result);
+        }
+
+        return response($result->content, 200, [
+            'Content-Type' => $result->mimeType,
+            'Content-Disposition' => 'attachment; filename="'.$result->filename.'"',
+        ]);
     }
 
     private function response(DocumentActionResult $r): JsonResponse
