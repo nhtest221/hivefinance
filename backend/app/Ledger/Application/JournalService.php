@@ -163,7 +163,23 @@ final readonly class JournalService
             return $validation;
         }
 
-        $payload = DB::transaction(function () use ($actor, $entityId, $journal, $idempotencyKey, $operation, $hash): array {
+        $expectedVersion = (int) $ifMatch;
+        $result = DB::transaction(function () use ($actor, $entityId, $journalId, $expectedVersion, $idempotencyKey, $operation, $hash): LedgerActionResult {
+            $journal = JournalEntry::query()->with('lines')->where('entity_id', $entityId)->whereKey($journalId)->lockForUpdate()->first();
+            if (($journal instanceof JournalEntry) === false) {
+                return $this->notFound();
+            }
+            if ($journal->version !== $expectedVersion) {
+                return new LedgerActionResult(['error_code' => 'concurrency_conflict', 'message' => 'The journal version has changed.', 'details' => [], 'required_version' => $journal->version], 409);
+            }
+            if ($journal->state !== 'draft') {
+                return new LedgerActionResult([
+                    'error_code' => 'invariant_violation',
+                    'message' => 'Only draft journals can be posted.',
+                    'details' => ['state' => $journal->state],
+                ], 422);
+            }
+
             $journal->state = 'posted';
             $journal->posted_at = Carbon::now('UTC');
             $journal->posted_by = $actor->id;
@@ -189,10 +205,10 @@ final readonly class JournalService
                 'response_status' => 200, 'response_body' => $response,
             ]);
 
-            return $response;
+            return new LedgerActionResult($response);
         });
 
-        return new LedgerActionResult($payload);
+        return $result;
     }
 
     /**
