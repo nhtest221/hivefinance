@@ -29,6 +29,12 @@ final readonly class ReportRunService
 {
     private const array REPORT_TYPES = ['trial_balance', 'general_ledger', 'profit_and_loss', 'balance_sheet', 'ar_ageing', 'ap_ageing', 'tax_summary', 'fx_revaluation', 'cash_view'];
 
+    /** Report types whose source-data watermark is bounded by a required `as_of` date (API Contracts §13.4, M5-GOV-002). */
+    private const array AS_OF_SCOPED_REPORT_TYPES = ['trial_balance', 'balance_sheet', 'ar_ageing', 'ap_ageing'];
+
+    /** Report types whose source-data watermark is bounded by a required `period_ref` (API Contracts §13.4, M5-GOV-002). */
+    private const array PERIOD_REF_SCOPED_REPORT_TYPES = ['profit_and_loss', 'tax_summary', 'fx_revaluation', 'cash_view'];
+
     public function __construct(
         private DocumentCommandSupport $commands,
         private ReportRunRepository $runs,
@@ -72,6 +78,11 @@ final readonly class ReportRunService
         $filters = is_array($data['filters'] ?? null) ? $data['filters'] : [];
         $periodRef = isset($data['period_ref']) && is_string($data['period_ref']) ? $data['period_ref'] : null;
         $asOf = isset($data['as_of']) && is_string($data['as_of']) ? $data['as_of'] : null;
+
+        $notReady = $this->requireSourceReady($reportType, $periodRef, $asOf);
+        if ($notReady !== null) {
+            return $notReady;
+        }
 
         $computed = $this->compute($actor, $entityId, $reportType, $periodRef, $asOf, $filters);
         if ($computed instanceof DocumentActionResult) {
@@ -206,6 +217,27 @@ final readonly class ReportRunService
 
             return new DocumentActionResult($body);
         });
+    }
+
+    /**
+     * API Contracts §13.4, Governance Clarification Record M5-GOV-002: `report_source_not_ready`
+     * fires when the requested as-of date or period cannot be reproduced from a complete source
+     * snapshot — here, when the scope value a report type's watermark must be bounded to is
+     * altogether absent, not merely when the resulting content is empty. A supplied-but-unknown
+     * `period_ref` remains `not_found` (§2's universal resource-identity convention, matching the
+     * pre-existing sibling behavior in ProfitAndLossQuery/TaxSummaryQuery/CashViewQuery/
+     * FXRevaluationQuery); this guard only covers the value being missing outright.
+     */
+    private function requireSourceReady(string $reportType, ?string $periodRef, ?string $asOf): ?DocumentActionResult
+    {
+        if (in_array($reportType, self::AS_OF_SCOPED_REPORT_TYPES, true) && ($asOf === null || $asOf === '')) {
+            return $this->commands->error('report_source_not_ready', 'An as_of date is required to establish a complete, reproducible source-data watermark for this report.', 422, ['rule' => 'report_source_not_ready', 'source_category' => 'as_of', 'readiness_state' => 'missing']);
+        }
+        if (in_array($reportType, self::PERIOD_REF_SCOPED_REPORT_TYPES, true) && ($periodRef === null || $periodRef === '')) {
+            return $this->commands->error('report_source_not_ready', 'A period_ref is required to establish a complete, reproducible source-data watermark for this report.', 422, ['rule' => 'report_source_not_ready', 'source_category' => 'period_ref', 'readiness_state' => 'missing']);
+        }
+
+        return null;
     }
 
     private function preflightApprove(string $entityId, string $id, int $expected): ?DocumentActionResult
