@@ -5,8 +5,10 @@ namespace App\Reconciliation\Application;
 use App\Ledger\Application\AccountReferenceQuery;
 use App\Models\Reconciliation\ReconciliationAccount;
 use App\Models\User;
+use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentCommandSupport;
+use App\Support\Outbox\Outbox;
 use App\Support\Pagination\StableCursor;
 use InvalidArgumentException;
 
@@ -17,6 +19,8 @@ final readonly class ReconciliationAccountService
         private DocumentCommandSupport $commands,
         private ReconciliationAccountRepository $accounts,
         private AccountReferenceQuery $ledgerAccounts,
+        private AuditLogger $audit,
+        private Outbox $outbox,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -55,6 +59,8 @@ final readonly class ReconciliationAccountService
             'reconciliation_enabled' => ! array_key_exists('reconciliation_enabled', $data) || (bool) $data['reconciliation_enabled'],
         ]);
         $body = ['reconciliation_account' => $this->summary($account)];
+        $this->audit->record('reconciliation', 'reconciliation_account_configured', 'reconciliation_account', $account->id, $actor->id, $entityId, after: $body['reconciliation_account'], correlationId: $this->correlation());
+        $this->outbox->record('ReconciliationAccountConfigured', 'ReconciliationAccount', $account->id, $body['reconciliation_account'], $entityId);
         $this->commands->store($actor->id, $entityId, $op, (string) $key, $hash, 201, $body);
 
         return new DocumentActionResult($body, 201);
@@ -73,9 +79,16 @@ final readonly class ReconciliationAccountService
         if ($expected instanceof DocumentActionResult) {
             return $expected;
         }
-        if ($this->accounts->getById($entityId, $id) === null) {
+        $op = 'PATCH /v1/reconciliation-accounts/'.$id;
+        $hash = $this->commands->hash([$data, $expected]);
+        if ($replay = $this->commands->replay($actor->id, $entityId, $op, (string) $key, $hash)) {
+            return $replay;
+        }
+        $existing = $this->accounts->getById($entityId, $id);
+        if ($existing === null) {
             return $this->notFound();
         }
+        $before = $this->summary($existing);
         $attributes = [];
         foreach (['display_name', 'masked_bank_identifier', 'reconciliation_enabled', 'column_mapping'] as $field) {
             if (array_key_exists($field, $data)) {
@@ -87,7 +100,12 @@ final readonly class ReconciliationAccountService
             return $this->conflict($entityId, $id);
         }
 
-        return new DocumentActionResult(['reconciliation_account' => $this->summary($account)]);
+        $body = ['reconciliation_account' => $this->summary($account)];
+        $this->audit->record('reconciliation', 'reconciliation_account_updated', 'reconciliation_account', $account->id, $actor->id, $entityId, before: $before, after: $body['reconciliation_account'], correlationId: $this->correlation());
+        $this->outbox->record('ReconciliationAccountUpdated', 'ReconciliationAccount', $account->id, $body['reconciliation_account'], $entityId);
+        $this->commands->store($actor->id, $entityId, $op, (string) $key, $hash, 200, $body);
+
+        return new DocumentActionResult($body);
     }
 
     public function show(User $actor, string $entityId, string $id): DocumentActionResult
@@ -142,5 +160,10 @@ final readonly class ReconciliationAccountService
         $current = $this->accounts->getById($entityId, $id);
 
         return $this->commands->error('concurrency_conflict', 'The reconciliation account was modified by another request.', 409, ['current_version' => $current?->version]);
+    }
+
+    private function correlation(): ?string
+    {
+        return app()->bound('request') ? (request()->attributes->get('correlation_id') ?: null) : null;
     }
 }

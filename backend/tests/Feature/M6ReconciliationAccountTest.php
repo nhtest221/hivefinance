@@ -1,8 +1,10 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\Identity\Entity;
 use App\Models\Identity\Role;
 use App\Models\Ledger\LedgerAccount;
+use App\Models\OutboxMessage;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -93,4 +95,30 @@ it('lists and shows reconciliation accounts scoped to the active entity', functi
     // Same actor, but the resource belongs to a different entity than the active one.
     $this->getJson('/v1/reconciliation-accounts/'.$account['id'], ['X-Entity-Id' => $entityB->id])
         ->assertStatus(404);
+});
+
+it('records audit and outbox events for configure and update, and replays a duplicate update by idempotency key', function (): void {
+    [$entity, $user] = m6AccountActors();
+    $ledgerAccount = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1010', 'name' => 'Cash', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']);
+    Sanctum::actingAs($user);
+    $account = $this->postJson('/v1/reconciliation-accounts', ['ledger_account_id' => $ledgerAccount->id, 'currency' => 'BDT', 'display_name' => 'NRB'], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->json('reconciliation_account');
+
+    expect(AuditLog::query()->where('action', 'reconciliation_account_configured')->where('record_id', $account['id'])->exists())->toBeTrue()
+        ->and(OutboxMessage::query()->where('event_type', 'ReconciliationAccountConfigured')->where('aggregate_id', $account['id'])->exists())->toBeTrue();
+
+    $updateKey = (string) Str::uuid();
+    $first = $this->patchJson('/v1/reconciliation-accounts/'.$account['id'], ['reconciliation_enabled' => false], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => $updateKey, 'If-Match' => '1'])
+        ->assertOk()->json('reconciliation_account');
+
+    expect(AuditLog::query()->where('action', 'reconciliation_account_updated')->where('record_id', $account['id'])->exists())->toBeTrue()
+        ->and(OutboxMessage::query()->where('event_type', 'ReconciliationAccountUpdated')->where('aggregate_id', $account['id'])->exists())->toBeTrue();
+
+    // Retrying the exact same update request (same key, same body, same If-Match) replays
+    // the stored response rather than re-applying the mutation a second time.
+    $this->patchJson('/v1/reconciliation-accounts/'.$account['id'], ['reconciliation_enabled' => false], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => $updateKey, 'If-Match' => '1'])
+        ->assertOk()
+        ->assertHeader('Idempotent-Replay', 'true')
+        ->assertJsonPath('reconciliation_account.version', $first['version']);
+
+    expect(AuditLog::query()->where('action', 'reconciliation_account_updated')->where('record_id', $account['id'])->count())->toBe(1);
 });
