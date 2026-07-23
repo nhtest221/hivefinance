@@ -485,3 +485,23 @@ The P&L computed-line skeleton, the detailed ageing buckets, SBU-filtered report
 This approval changes no M0–M4 public contract, ADR text, Architecture Principle, or Engineering Constitution rule; implements no M6 endpoint; and introduces no consolidation/CTA behavior, no automatic allocation, no fabricated Hard Close evidence, and no Hard Close bypass.
 
 **Traceability:** approved proposal §§0–16; ADR-001 (lock rider #2 closed by this record); Implementation Roadmap M5; API Contracts §13; Aggregate Design §16 (ReportRun); Database Design `reporting` schema; Repository Contracts §3; Domain Events "Reporting" schemas; M4 `CloseGateProvider` v1 (`config/period.close_gates`); Engineering Constitution ARCH-02 through ARCH-05, DOM-07, REPO-05, API-01 through API-07, DB-02 through DB-06, and ERR-01 through ERR-05.
+
+---
+
+## Governance Clarification Record — M5-GOV-002
+
+**Status:** APPROVED
+**Date:** 23 July 2026
+**Scope:** `report_source_not_ready` trigger definition for `POST /v1/report-runs`
+
+`M5-GOV-001` declared `report_source_not_ready` as a valid `POST /v1/report-runs` generation rule (API Contracts §13.4, §13.15) without defining the condition that triggers it. This record supplies that definition, approved by the Product Owner.
+
+`report_source_not_ready` (422) is returned only when the system cannot prove that a required source projection or source contract is complete and usable for the requested report scope and source-data watermark. Valid triggers: a required source projection has never been initialized or rebuilt; a required source adapter is unavailable; the source watermark is missing, invalid, or behind the minimum watermark required for the requested report; a required upstream projection reports failed, rebuilding, incomplete, or stale; the requested entity, period, as-of date, basis, or filter scope cannot be reproduced from a complete source snapshot; or a required source contract returns an explicit not-ready result.
+
+It must **not** be returned merely because the report contains zero rows, an entity has no transactions, all balances are zero, a filter produces an empty result, the requested period is open, a report has not previously been generated, or optional comparison data is unavailable. A normal empty but complete source result is a successful report with zero rows and valid zero totals, subject to the report's own accounting invariants.
+
+On trigger: `details` identifies only the unavailable source category and readiness state — never infrastructure secrets, SQL, internal paths, or cross-entity data. No `ReportRun`, snapshot, content hash, approval request, audit business event, or business outbox event is created, and no accounting mutation occurs. Exact idempotency replay of the same request remains side-effect free.
+
+This clarification defines the trigger and non-trigger conditions and the side-effect-free failure contract for an already-declared M5 rule. It introduces no new endpoint, state, `ReportRun` field, event, or application implementation beyond what §13 already specifies, and changes no other M5-GOV-001 rule.
+
+**Traceability:** API Contracts §13.4, §13.15, §13.16; Governance Approval Record `M5-GOV-001`; Engineering Constitution ERR-01 through ERR-04 (ERR-04: internal detail stays server-side) and ERR-05 (idempotent retries); the frozen idempotency-replay contract (§1–§3).
