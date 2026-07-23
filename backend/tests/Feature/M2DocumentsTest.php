@@ -160,3 +160,44 @@ it('enforces recognized document immutability in PostgreSQL', function (): void 
 
     expect(fn () => DB::table('receivables_invoices')->where('id', $draft['id'])->update(['total' => '999.0000']))->toThrow(QueryException::class);
 })->skip(fn (): bool => DB::getDriverName() !== 'pgsql', 'PostgreSQL trigger validation.');
+
+it('keeps document lines and SBU allocations mutable while draft, immutable once recognized, in PostgreSQL', function (): void {
+    [$maker, $approver, $entity, $accounts] = m2Actors();
+    $customer = createCustomer($this, $maker, $entity);
+    $draft = $this->postJson('/v1/invoices', ['customer_id' => $customer['id'], 'invoice_date' => '2026-07-15', 'currency' => 'BDT', 'lines' => [['description' => 'Service', 'quantity' => '1.0000', 'unit_price' => ['amount' => '10.0000', 'currency' => 'BDT'], 'tax_code_id' => null]]], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('invoice');
+    $draftLineId = $draft['lines'][0]['id'];
+
+    // Mutable while the parent invoice is draft.
+    DB::table('receivables_invoice_lines')->where('id', $draftLineId)->update(['description' => 'Updated while draft']);
+    expect(DB::table('receivables_invoice_lines')->where('id', $draftLineId)->value('description'))->toBe('Updated while draft');
+
+    // issue() replaces draft lines with freshly-inserted posted lines (new ids) —
+    // the id to test immutability against is the one issue() actually returns.
+    $issued = $this->postJson('/v1/invoices/'.$draft['id'].'/issue', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('invoice');
+    $issuedLineId = $issued['lines'][0]['id'];
+    expect(fn () => DB::transaction(fn () => DB::table('receivables_invoice_lines')->where('id', $issuedLineId)->update(['description' => 'Tampered'])))->toThrow(QueryException::class);
+
+    $vendor = createVendor($this, $maker, $entity);
+    $bill = $this->postJson('/v1/bills', ['vendor_id' => $vendor['id'], 'bill_date' => '2026-07-15', 'currency' => 'BDT', 'lines' => [['description' => 'Service', 'quantity' => '1.0000', 'unit_price' => ['amount' => '100.0000', 'currency' => 'BDT'], 'expense_account_id' => $accounts['expense']->id, 'tax_code_id' => null]], 'sbu_allocations' => [['sbu_code' => 'OPS', 'weight' => '1.0000']]], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('bill');
+    $draftBillLineId = $bill['lines'][0]['id'];
+    // approve() replaces lines but leaves sbuAllocations rows in place — its id stays stable.
+    $sbuAllocationId = DB::table('payables_bill_sbu_allocations')->where('bill_id', $bill['id'])->value('id');
+
+    // Mutable while the parent bill is draft.
+    DB::table('payables_bill_lines')->where('id', $draftBillLineId)->update(['description' => 'Updated while draft']);
+    DB::table('payables_bill_sbu_allocations')->where('id', $sbuAllocationId)->update(['weight' => '0.5000']);
+    expect(DB::table('payables_bill_lines')->where('id', $draftBillLineId)->value('description'))->toBe('Updated while draft')
+        ->and(DB::table('payables_bill_sbu_allocations')->where('id', $sbuAllocationId)->value('weight'))->toBe('0.5000');
+    // Restore the 100% weight invariant approve() requires before proceeding to approval.
+    DB::table('payables_bill_sbu_allocations')->where('id', $sbuAllocationId)->update(['weight' => '1.0000']);
+
+    Sanctum::actingAs($maker);
+    $this->postJson('/v1/bills/'.$bill['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
+        ->assertForbidden()->assertJsonPath('error_code', 'sod_exception_required');
+    Sanctum::actingAs($approver);
+    $approved = $this->postJson('/v1/bills/'.$bill['id'].'/approve', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('bill');
+    $approvedBillLineId = $approved['lines'][0]['id'];
+
+    expect(fn () => DB::transaction(fn () => DB::table('payables_bill_lines')->where('id', $approvedBillLineId)->update(['description' => 'Tampered'])))->toThrow(QueryException::class);
+    expect(fn () => DB::transaction(fn () => DB::table('payables_bill_sbu_allocations')->where('id', $sbuAllocationId)->delete()))->toThrow(QueryException::class);
+})->skip(fn (): bool => DB::getDriverName() !== 'pgsql', 'PostgreSQL trigger validation.');

@@ -3,6 +3,7 @@
 use App\CurrencyFx\Application\FxService;
 use App\Models\AuditLog;
 use App\Models\CurrencyFx\RateRecord;
+use App\Models\CurrencyFx\RevaluationRun;
 use App\Models\Identity\Entity;
 use App\Models\Identity\Role;
 use App\Models\Ledger\JournalEntry;
@@ -11,6 +12,7 @@ use App\Models\OutboxMessage;
 use App\Models\Period\AccountingPeriod;
 use App\Models\Tax\TaxCode;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -187,6 +189,26 @@ it('posts and links the configured next-period revaluation reversal', function (
     expect(app(FxService::class)->reverseRevaluation($entity->id, $run['id'], $maker->id))->toBeFalse()
         ->and(OutboxMessage::query()->where('event_type', 'RevaluationReversed')->count())->toBe(1);
 });
+
+it('protects posted FX revaluation run facts from mutation while allowing its own reversal-lifecycle fields, in PostgreSQL', function (): void {
+    [, , $entity] = m1Actors([]);
+    $run = RevaluationRun::query()->create([
+        'entity_id' => $entity->id, 'period_ref' => '2026-07', 'status' => 'posted',
+        'figures' => [['account_id' => (string) Str::uuid(), 'amount' => ['amount' => '25.0000', 'currency' => 'BDT']]],
+        'rate_record_ids' => [], 'journal_entry_ids' => [], 'reversal_status' => 'scheduled',
+        'target_period_ref' => '2026-08', 'reversal_journal_entry_ids' => [], 'version' => 1,
+    ]);
+
+    // Whitelisted reversal-lifecycle fields remain mutable after posting.
+    DB::transaction(fn () => DB::table('fx_revaluation_runs')->where('id', $run->id)->update(['journal_entry_ids' => json_encode([(string) Str::uuid()]), 'version' => 2]));
+    expect(DB::table('fx_revaluation_runs')->where('id', $run->id)->value('version'))->toBe(2);
+
+    // The posted fact itself (figures) is immutable.
+    expect(fn () => DB::transaction(fn () => DB::table('fx_revaluation_runs')->where('id', $run->id)->update(['figures' => json_encode([['tampered' => true]])])))
+        ->toThrow(QueryException::class);
+    expect(fn () => DB::transaction(fn () => DB::table('fx_revaluation_runs')->where('id', $run->id)->delete()))
+        ->toThrow(QueryException::class);
+})->skip(fn (): bool => DB::getDriverName() !== 'pgsql', 'PostgreSQL trigger validation.');
 
 it('routes configured journal reversal through durable maker checker approval', function (): void {
     [$maker, $approver, $entity] = m1Actors(['ledger.journals.create', 'ledger.journals.post', 'ledger.journals.reverse']);
