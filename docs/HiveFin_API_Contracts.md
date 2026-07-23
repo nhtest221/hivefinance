@@ -2294,3 +2294,174 @@ New `details.rule` values, using the frozen shared envelope (§2): `missing_repo
 | `report_source_not_ready` exact trigger/non-trigger conditions and side-effect-free failure | `M5-GOV-002` |
 
 M5 introduces no M6 Reconciliation endpoint, no consolidation/CTA behavior, no XLSX export, no hardcoded ageing bucket outside versioned configuration, no inferred account classification, and no Hard Close bypass.
+
+---
+
+## 14. Approved Amendment — M6 Reconciliation
+
+**Governance Approval Record:** `M6-GOV-001` (`HiveFin_Decision_Log.md`). Source: explicit Product Owner decisions on the nine open items raised during governance review, recorded verbatim in that record.
+
+### 14.1 Purpose, canonical name, and sequencing
+
+Canonical milestone name: **M6 — Reconciliation**. M6 depends on completed M1 Ledger + Valuation, M2 Documents, M3 Settlement, M4 Corrections/Notes/Period Close, and M5 Reporting and Cash View. M6 supplies the one evidence provider M4's Hard Close has awaited since M4: `bank_reconciliation_completed`. Until this amendment is implemented, that gate correctly remains `unmet` via `UnavailableCloseGateProvider`. M6 implements no M7 Migration behavior, no consolidation/CTA behavior, and satisfies no Reporting-owned gate (`trial_balance_reviewed`, `profit_and_loss_approved`, `balance_sheet_approved`, `vat_outputs_approved` remain exclusively `ReportingCloseGateProvider`-owned, unchanged).
+
+**No second Ledger, no second bank-account master.** `ReconciliationAccount` (§14.4) is a thin, Reconciliation-owned configuration record that references exactly one existing asset-type `LedgerAccount`; it carries no balance, no posting capability, and duplicates no Ledger data. Every debit/credit this amendment can cause reaches the Ledger only through `PostingService`, in-process (AP-001) — Reconciliation never writes `journal_lines`/`ledger_accounts` directly.
+
+### 14.2 Common protocol and shared schemas
+
+All M6 public endpoints inherit the frozen M0–M5 protocol exactly (§1–§3): TLS/authentication required; `X-Entity-Id` required, default-deny, cross-entity `404 not_found`; optional `X-Correlation-Id`; Money `{amount, currency}` exact decimal strings only; unknown fields `400 validation`; frozen error envelope `{error_code, message, details, doc_id?, required_version?}`; every mutating command requires `Idempotency-Key`; every command against an existing versioned resource requires `If-Match: <version>`.
+
+Header profiles: `R` (`Authorization`, `X-Entity-Id`; optional `X-Correlation-Id`) for every `GET`; `W0` (`R` + `Idempotency-Key`) for commands creating a new resource with no prior version to guard (`POST /v1/reconciliation-accounts`, `POST /v1/reconciliations`, `POST .../import`, `POST .../match-suggestions`); `W1` (`W0` + `If-Match`) for commands mutating an existing versioned resource (`PATCH /v1/reconciliation-accounts/{id}`, `POST .../lines/{lineId}/match`, `POST .../lines/{lineId}/confirm`, `POST .../lines/{lineId}/bank-entry`, `POST .../complete`, `POST .../reopen`).
+
+**Mandatory durable four-eyes approval** (`W1`, `202 pending_approval` unconditionally — not gated by whether the entity has configured an approval policy for the capability, exactly matching M4 Hard Close's unconditional four-eyes, not M2–M5's policy-conditional pattern) applies to exactly three commands: `CreateEntryForBankLine`, `CompleteReconciliation`, `ReopenReconciliation`. All three commit through the existing, unchanged `POST /v1/approvals/{id}/approve` (§3) — no new approval endpoint is introduced. `ImportStatement`, `GenerateMatchSuggestions`, `MatchLine`, and `ConfirmMatch` are not maker-checker-eligible but still enforce capability checks, entity isolation, idempotency, optimistic concurrency, audit, and outbox recording where they mutate state.
+
+Every computed match derives from already-posted, already-immutable `Allocation` facts (M3, `settlement_allocations`); no command accepts a client-supplied match confidence, tolerance, or write-off amount.
+
+### 14.3 Endpoint inventory (16 endpoints)
+
+```
+POST  /v1/reconciliation-accounts
+GET   /v1/reconciliation-accounts?limit=&cursor=
+GET   /v1/reconciliation-accounts/{id}
+PATCH /v1/reconciliation-accounts/{id}                                   ⚡ not maker-checker; version-guarded config edit
+
+POST  /v1/reconciliations                                                (OpenReconciliation → Draft)
+GET   /v1/reconciliations?bank_account_id=&state=&limit=&cursor=
+GET   /v1/reconciliations/{id}
+POST  /v1/reconciliations/{id}/import                                    (ImportStatement)
+POST  /v1/reconciliations/{id}/match-suggestions                         (GenerateMatchSuggestions)
+GET   /v1/reconciliations/{id}/unmatched                                 (GetUnmatchedLines)
+POST  /v1/reconciliations/{id}/lines/{lineId}/match                      (MatchLine)
+POST  /v1/reconciliations/{id}/lines/{lineId}/confirm                    (ConfirmMatch)
+POST  /v1/reconciliations/{id}/lines/{lineId}/bank-entry     ⚡           (CreateEntryForBankLine)
+POST  /v1/reconciliations/{id}/complete                      ⚡           (CompleteReconciliation)
+POST  /v1/reconciliations/{id}/reopen                        ⚡           (ReopenReconciliation)
+GET   /v1/reconciliations/{id}/statement?format=pdf|csv                  (export)
+```
+
+`⚡` = mandatory durable four-eyes (§14.2). Every other command/query follows the frozen pagination, versioning, and error conventions with no further exception.
+
+### 14.4 `ReconciliationAccount` — bank-account configuration
+
+A `ReconciliationAccount` is Reconciliation-owned metadata referencing exactly one asset-type `LedgerAccount`; it is **not** a second accounting account and carries no balance. Fields: `id`, `entity_id`, `ledger_account_id` (must reference an existing `LedgerAccount` with `type=asset` for the same entity; `422 invalid_ledger_account` otherwise), `currency` (ISO 4217, fixed at creation — a `ReconciliationAccount` is single-currency), `display_name`, `masked_bank_identifier`, `reconciliation_enabled` (boolean, default `true`), `version`. `PATCH` may change `display_name`, `masked_bank_identifier`, `reconciliation_enabled`, and the account's saved CSV `column_mapping` (§14.5); it may never change `ledger_account_id`, `entity_id`, or `currency` — those are immutable once created (a currency or ledger-account change is a new `ReconciliationAccount`, not an edit, to keep every existing `BankReconciliation`'s history meaningful). `Unique(entity_id, ledger_account_id)` — one `ReconciliationAccount` per Ledger account.
+
+```json
+{"request":{"ledger_account_id":"c9b1b6b0-1a2b-4c3d-8e9f-0a1b2c3d4e5f","currency":"BDT","display_name":"NRB Current","masked_bank_identifier":"****4821","reconciliation_enabled":true},
+ "response":{"reconciliation_account":{"id":"a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d","entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee","ledger_account_id":"c9b1b6b0-1a2b-4c3d-8e9f-0a1b2c3d4e5f","currency":"BDT","display_name":"NRB Current","masked_bank_identifier":"****4821","reconciliation_enabled":true,"version":1}}}
+```
+
+`POST /v1/reconciliation-accounts` (`reconciliation.accounts.configure`, `W0`) rules: `invalid_ledger_account` (422 — not found, wrong entity, or not asset-type), `duplicate_reconciliation_account` (422 — `ledger_account_id` already configured for this entity).
+
+### 14.5 Statement import and duplicate detection
+
+`ImportStatement` receives already-parsed statement lines (CSV-to-JSON parsing is a client/edge concern, not a domain one) plus a client-computed SHA-256 `file_hash` of the original source file, and an optional `column_mapping` to save on the `ReconciliationAccount` for reuse. Each line: `source_line_identity` (the line's position/identity within the source file, preserved for traceability), `transaction_date`, `narration`, `amount` (signed — positive inflow, negative outflow, in the `ReconciliationAccount`'s fixed `currency`), and optional `external_bank_reference`.
+
+**Duplicate identity** (per line): `(entity_id, reconciliation_account_id, transaction_date, amount, currency, normalized_narration, external_bank_reference)` — `normalized_narration` is the narration case-folded and whitespace-collapsed; `external_bank_reference` participates in the identity tuple using SQL null-safe comparison (`IS NOT DISTINCT FROM`/`COALESCE`), never a naive nullable unique index, so two references both omitting a bank reference are still compared on their other fields, not silently treated as automatically distinct. Duplicate scope is **all history for that `ReconciliationAccount`**, not just the current import batch or the current `BankReconciliation`.
+
+**Import behavior:** every line whose duplicate identity already exists is **rejected, not silently skipped** — it is omitted from the created `StatementLine` rows and returned in the response's `conflicts` array with its `source_line_identity` and the reason; every non-duplicate line in the same request is still imported as a new `StatementLine` in `Unreconciled` status. A whole-file exact re-import (identical `file_hash` against the same `ReconciliationAccount`) is rejected outright before per-line checking, as `duplicate_import_file`. **Exact idempotency replay** (same `Idempotency-Key` and identical request body) returns the original stored response — including its original `conflicts` — and creates no new rows; it is not a second import.
+
+```json
+{"request":{"file_hash":"3b1f...9c02","column_mapping":{"date":"Date","narration":"Description","amount":"Amount","reference":"Reference"},"lines":[{"source_line_identity":"row-1","transaction_date":"2026-07-05","narration":"NEFT Northstar Digital","amount":{"amount":"9000.0000","currency":"USD"},"external_bank_reference":"NEFT82231"}]},
+ "response":{"reconciliation":{"id":"...","state":"InProgress","version":2},"imported":1,"conflicts":[]}}
+```
+
+`POST /v1/reconciliations/{id}/import` (`reconciliation.reconciliations.import`, `W0`) rules: `duplicate_import_file` (422), `reconciliation_not_editable` (422 — batch is `Completed` or `PendingCompletionApproval`; import requires `Draft`, `InProgress`, or `Reopened`), `currency_mismatch` (422 — a line's `currency` differs from the account's fixed currency; §14.10).
+
+### 14.6 Matching — candidates, algorithm, and suggestions
+
+**Match candidates are M3 Settlement `Allocation` rows** (`state=posted`) sharing the `ReconciliationAccount`'s `ledger_account_id` via `Allocation.bank_account_id`, compared on `Allocation.bank_amount` (the frozen "actual cash received or paid" field, API Contracts §11 — never `gross_amount`, which can include withholding never reflected in the bank movement). Reversed allocations are equally valid candidates on their own `bank_amount` and sign. Reconciliation never matches against raw `JournalLine`/`JournalEntry` rows directly, with exactly two exceptions: (a) a statement line already resolved by an **approved** `CreateEntryForBankLine` retains that entry's id for validation and drill-down display, and (b) audit/drill-down views may display the `JournalEntry` a matched `Allocation` itself posted, read-only, for context — neither is a matching *candidate*.
+
+`GenerateMatchSuggestions` (`reconciliation.reconciliations.generate_suggestions`, `W0`) evaluates every `Unreconciled` or `Unexplained` line in the batch against unconsumed `Allocation` candidates for the same `ReconciliationAccount` and exact `currency` (§14.10 — no cross-currency matching):
+
+- **Exact currency, exact amount, ±3 calendar days** between `StatementLine.transaction_date` and `Allocation.settlement_date`, are the mandatory filters.
+- **Normalized reference comparison** (`external_bank_reference`/narration vs `Allocation.allocation_number`/party name, case-folded, whitespace-collapsed substring match) is a ranking signal only, never a filter — it orders multiple qualifying candidates but never excludes an amount/date/currency match.
+- **One-to-one, one-to-many (one statement line ↔ several allocations), and many-to-one (several statement lines ↔ one allocation) suggestions only**, and only when the grouped total is **exactly** equal — no tolerance, no fuzzy amount matching, no partial/residual write-off. Many-to-many is never suggested.
+- A suggestion is **always a proposal**: `GenerateMatchSuggestions` creates `Suggested` lines with one or more ranked candidate groups attached; it never transitions a line to `Matched` or `Reconciled`, and it creates no journal, audit business event beyond the suggestion record itself, or outbox business event.
+- A line with zero qualifying candidates after generation is marked `Unexplained`. Re-running `GenerateMatchSuggestions` later (e.g., after new settlements post) re-evaluates every `Unreconciled`/`Unexplained` line and may move an `Unexplained` line back to `Suggested`.
+
+```json
+{"request":{},"response":{"suggested":3,"unexplained":1,"lines":[{"line_id":"...","status":"Suggested","suggestions":[{"suggestion_id":"...","allocation_ids":["1204d0d4-..."],"total_amount":{"amount":"9000.0000","currency":"USD"},"rank":1,"reference_match":true}]}]}}
+```
+
+`POST /v1/reconciliations/{id}/match-suggestions` rules: `reconciliation_not_editable` (422, same states as §14.5).
+
+### 14.7 Manual matching
+
+`MatchLine` (`reconciliation.reconciliations.match`, `W1`) selects one suggestion (from `GenerateMatchSuggestions`) or an explicit manual candidate set for one `Unreconciled`/`Suggested`/`Unexplained` line, moving it to `Matched`. Re-calling `MatchLine` on a `Matched` line (not yet `Reconciled`) replaces the selection. A manual candidate set is subject to the exact same constraints as an automatic suggestion (§14.6): same `ReconciliationAccount`, exact currency, exact total, one-to-one/one-to-many/many-to-one only — `MatchLine` re-validates these server-side regardless of what `GenerateMatchSuggestions` proposed; it never trusts a client-supplied total.
+
+`ConfirmMatch` (`reconciliation.reconciliations.confirm`, `W1`) promotes a `Matched` line to `Reconciled` — the one explicit human confirmation step. `Reconciled` is immutable for that line except through `ReopenReconciliation` at the batch level (§14.9); confirming marks the underlying `Allocation`(s) as consumed by this reconciliation (an `Allocation` may be consumed by at most one `Reconciled` line-group, preventing double-reconciliation of the same cash movement).
+
+`POST /v1/reconciliations/{id}/lines/{lineId}/match` rules: `line_not_matchable` (422 — line is `Matched` from a prior different reconciliation attempt in a state that disallows re-selection, or the batch is not editable), `match_total_mismatch` (422 — candidate total ≠ line/group total), `currency_mismatch` (422), `allocation_already_consumed` (422 — a selected `Allocation` is already `Reconciled` elsewhere).
+`POST /v1/reconciliations/{id}/lines/{lineId}/confirm` rules: `line_not_matched` (422 — line is not currently `Matched`).
+
+### 14.8 Bank-only entries
+
+`CreateEntryForBankLine` (`reconciliation.reconciliations.create_bank_entry`, `W1`, ⚡ mandatory four-eyes) resolves an `Unreconciled` or `Unexplained` line with no viable existing-transaction match by posting a new, manually classified journal entry. The caller supplies the **offset `LedgerAccount` explicitly** — this amendment infers and defaults no accounting classification; there is no "bank fees"/"interest income" default. The bank leg is derived from the `ReconciliationAccount.ledger_account_id` and the line's signed `amount` (positive → debit bank/credit offset; negative → credit bank/debit offset); the entry posts through the existing Ledger `PostingService`, in-process (AP-001), exactly as every other M1–M5 posting path — no second posting mechanism. The posted `JournalEntry` id is linked back onto the `StatementLine` (`resolved_by_journal_entry_id`), preserving audit, outbox, idempotency, and the standard `reversal_of_entry_id` reversal trail identically to every other Ledger posting. On the approving checker's commit, the line moves directly to `Reconciled` (a bank-only entry both explains and reconciles its line in one durable action — there is no intermediate `Matched` state for this path).
+
+```json
+{"request":{"offset_account_id":"6a5b4c3d-2e1f-4a5b-8c9d-0e1f2a3b4c5d","narration":"NRB monthly service charge"},
+ "response":{"approval":{"id":"...","status":"pending","version":1}}}
+```
+
+```json
+{"request":{},"response":{"line":{"id":"...","status":"Reconciled","resolved_by_journal_entry_id":"..."}}}
+```
+
+Rules: `offset_account_required` (400 — missing/empty), `invalid_offset_account` (422 — not found, wrong entity, or inactive), `line_not_resolvable` (422 — line is already `Matched`/`Reconciled`, or the batch is not editable), `period_locked` (423 — inherited from `PostingService`, unchanged).
+
+### 14.9 Reconciliation lifecycle and completion
+
+**Batch states:** `Draft → InProgress → PendingCompletionApproval → Completed → Reopened`. `OpenReconciliation` (`POST /v1/reconciliations`) creates a `Draft` batch scoped to one `ReconciliationAccount` and a declared statement `opening_balance`/`closing_balance`/period (`period_ref`, matching the frozen Period reference format). The first `ImportStatement` moves `Draft → InProgress`; further imports, matches, confirms, and bank-only entries keep it `InProgress`. `Reopened` behaves identically to `InProgress` for command eligibility (further import/match/confirm/bank-only-entry activity is permitted) — it exists only as a distinct, auditable label, exactly mirroring `AccountingPeriod`'s `Reopened` state (M4), which likewise "requires re-close" rather than silently reverting to its prior state.
+
+**`CompleteReconciliation`** (`reconciliation.reconciliations.complete`, `W1`, ⚡ mandatory four-eyes) requires, atomically re-validated at the approving checker's commit (not merely at request time): every `StatementLine` in the batch is `Reconciled` (none `Unreconciled`/`Suggested`/`Matched`/`Unexplained`); and `closing_balance = opening_balance + Σ(amount of every Reconciled line)`, i.e. the **unexplained difference is exactly `0.0000`**. **There is no force-close and no unexplained-balance bypass** — an `Unexplained` line can only be resolved through an approved existing-transaction match (`MatchLine` + `ConfirmMatch`) or an approved bank-only entry (§14.8); `CompleteReconciliation` itself never write-offs, forgives, or silently drops a difference. On the checker's commit, the batch moves `InProgress`/`Reopened` → `Completed`, freezing a `source_data_watermark` (§14.11) and an immutable snapshot content hash of the completed statement (mirroring `ReportRun.content_hash`, M5).
+
+**`ReopenReconciliation`** (`reconciliation.reconciliations.reopen`, `W1`, ⚡ mandatory four-eyes) is available only from `Completed`. It does not revert already-`Reconciled` lines' status or un-consume their `Allocation`s — closed facts stay closed; it only re-admits the batch to further import/match/confirm/bank-only-entry activity and requires a fresh `CompleteReconciliation` to re-close. Reopening a `Completed` reconciliation whose evidence has already satisfied a Hard-Closed period's gate does not retroactively unlock that period (Period's own `Reopen` command, M4, is the only path back into a Hard-Closed period); it does make the gate **stale** for any *future* Hard Close evaluation of that account/period until re-completed (§14.11).
+
+`POST /v1/reconciliations/{id}/complete` rules: `lines_not_fully_reconciled` (422, `details.unreconciled_line_ids`), `unexplained_difference` (422, `details.difference` — the exact non-zero amount), `reconciliation_not_completable` (422 — wrong state).
+`POST /v1/reconciliations/{id}/reopen` rules: `reconciliation_not_reopenable` (422 — not `Completed`).
+
+### 14.10 Multi-currency scope
+
+Foreign-currency bank statements are **in scope for M6**. A `ReconciliationAccount`'s `currency` is fixed at creation; `GenerateMatchSuggestions` and `MatchLine` compare `StatementLine.amount.currency` against `Allocation.bank_amount.currency` for **exact equality only** — no FX amount tolerance and no cross-currency matching, ever (§14.6). A bank-only entry's foreign-currency conversion to functional currency, where the offset account requires one, uses an immutable `RateRecord` reference exactly as every other M1–M5 foreign posting does (ADR-007) — this amendment introduces no new FX source, rate lookup, or rounding policy. Period-end unrealised FX revaluation of foreign bank balances remains entirely M1/`CurrencyFx`-owned (§7 SRS, ADR-007) and is untouched by M6.
+
+### 14.11 `ReconciliationCloseGateProvider` implementation
+
+`ReconciliationCloseGateProvider` implements the unchanged `CloseGateProvider` v1 interface (§12.7) for `bank_reconciliation_completed` only. It never satisfies a Reporting-owned gate.
+
+**Mandatory scope:** every `ReconciliationAccount` for the entity with `reconciliation_enabled=true` at evaluation time. If none exist, the gate is **vacuously satisfied** (the Product Owner's own definition of "mandatory" is "configured as `reconciliation_enabled`" — zero configured accounts means zero requirements, not a missing provider); `evidence_version=0`, `evidence_hash` is the SHA-256 of an empty set, `source_reference=null`, `produced_at`/`reviewed_by`/`reviewed_at` reflect the evaluation itself.
+
+**Evaluation:** for each mandatory `ReconciliationAccount`, find the current `Completed` `BankReconciliation` covering the requested `period_ref`. Any mandatory account without one → `status=unmet`, all evidence fields `null` (§12.7's honest-absence shape). If every mandatory account has qualifying evidence, recompute a **staleness check**: the latest `posted_at`/`reversed_at` among (a) `JournalEntry` rows posted to the account's `ledger_account_id` within the period, (b) `Allocation` rows (post or reversal) referencing the account's `bank_account_id` within the period, and (c) the reconciliation's own last import/line-mutation timestamp — compared against each qualifying `BankReconciliation.source_data_watermark` (frozen at `Completed`, §14.9). Any later relevant event → `status=unmet` (stale), never a client-facing error, matching M5's `report_run_stale` precedent (§13.12) exactly.
+
+**Composite evidence, single frozen `CloseGateResult` shape (§12.7 unchanged, not modified by this amendment):** because one gate can require multiple accounts' evidence but `CloseGateResult` carries exactly one `source_reference`/`evidence_hash`, `source_reference` is the `id` of the qualifying `BankReconciliation` with the latest `completed_at` (the freshest, "controlling" evidence); `produced_at`/`reviewed_by`/`reviewed_at` are that same reconciliation's; `evidence_version` is the **count** of qualifying `ReconciliationAccount`s bundled into this satisfied result; `evidence_hash` is the SHA-256 of the sorted, newline-joined list of `{reconciliation_account_id}:{bank_reconciliation_id}:{version}` for every qualifying reconciliation — tamper-evident across the whole set, verifiable, and reproducible.
+
+```json
+{"contract_version":1,"gate_type":"bank_reconciliation_completed","entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee","period_id":"45124343-5a6e-48c2-821d-6685cf1fd46e","period_ref":"2026-07","status":"satisfied","source_context":"reconciliation","source_reference":"9c1e5c2a-9d0e-4c8a-9c3a-1f9e7b0a2d3c","produced_at":"2026-08-01T09:00:00.000Z","reviewed_by":"1b8f3c2f-4e62-4fa9-a924-77848017a9a6","reviewed_at":"2026-08-01T09:12:00.000Z","evidence_version":2,"evidence_hash":"7ad2...c410"}
+```
+
+### 14.12 Export
+
+**PDF and CSV export only; XLSX excluded**, matching M5-GOV-001's precedent. `GET /v1/reconciliations/{id}/statement?format=pdf|csv` (`reconciliation.reconciliations.read`, `R`) produces the reconciliation statement from the current persisted state (any batch state — a `Draft`/`InProgress` export is a live preview; a `Completed` export reads the frozen snapshot) and creates no accounting mutation, audit business event, or business outbox event. Output identifies at minimum: `reconciliation_account_id`, `period_ref`, `opening_balance`, `closing_balance`, every line with its status and (if resolved) its `Allocation`/`JournalEntry` reference, the unexplained difference, and the batch `state`. `format` values other than `pdf`/`csv` (including `xlsx`) return `400 validation`; unauthorized/cross-entity `id` returns `404 not_found`.
+
+### 14.13 Reconciliation/Ledger/Settlement context boundary
+
+Reconciliation reads M3 `Allocation` facts through Settlement's own existing read contracts and reads Ledger facts (for staleness evaluation, §14.11) through Ledger's own existing read contracts — never a direct table read of `settlement_allocations`/`journal_lines` bypassing an owning context's query contract (AP-001). Every write Reconciliation causes outside its own `reconciliation_accounts`/`bank_reconciliations`/`statement_line` tables happens through the owning context's application service: `CreateEntryForBankLine` invokes Ledger's `PostingService`; nothing in this amendment writes an `Allocation`, `JournalEntry`, or `JournalLine` row directly. `ReconciliationCloseGateProvider` is the only new consumer of the unchanged M4 `CloseGateProvider` v1 interface introduced by this amendment.
+
+### 14.14 Stable errors
+
+New `details.rule` values, using the frozen shared envelope (§2): `invalid_ledger_account` (422), `duplicate_reconciliation_account` (422), `duplicate_import_file` (422), `reconciliation_not_editable` (422), `currency_mismatch` (422), `line_not_matchable` (422), `match_total_mismatch` (422), `allocation_already_consumed` (422), `line_not_matched` (422), `offset_account_required` (400), `invalid_offset_account` (422), `line_not_resolvable` (422), `lines_not_fully_reconciled` (422), `unexplained_difference` (422), `reconciliation_not_completable` (422), `reconciliation_not_reopenable` (422). `bank_reconciliation_stale` surfaces as an `unmet` gate, never a client-facing error (§14.11), exactly matching `report_run_stale`'s M5 precedent (§13.12).
+
+### 14.15 Traceability
+
+| Amendment rule | Frozen source |
+|---|---|
+| `ReconciliationAccount` references, never duplicates, an existing asset-type `LedgerAccount` | `M6-GOV-001` item 1; Context Interaction Matrix §9 |
+| Match candidates are M3 `Allocation.bank_amount`, never raw journal lines | `M6-GOV-001` item 2; API Contracts §11 (`bank_amount` = actual cash moved) |
+| Exact currency/amount, ±3 day window, reference as ranking only, suggestion-only, no tolerance/fuzzy/hidden write-off | `M6-GOV-001` item 3 |
+| Five-state line model, five-state batch model, no force-close, no unexplained bypass | `M6-GOV-001` item 4 |
+| Manual offset account only, no inferred classification, mandatory four-eyes, posts via `PostingService` | `M6-GOV-001` item 5; AP-001 |
+| Duplicate rejection (not silent skip), defined identity tuple, file-hash + source-line preservation | `M6-GOV-001` item 6 |
+| Foreign-currency statements in scope, same-currency matching only, no FX tolerance | `M6-GOV-001` item 7; ADR-007 |
+| `reconciliation_enabled` accounts mandatory, staleness on new/reversed bank activity, `bank_reconciliation_completed` only | `M6-GOV-001` item 8; §12.7 (M4) |
+| Mandatory four-eyes scope: `CreateEntryForBankLine`, `CompleteReconciliation`, `ReopenReconciliation` only | `M6-GOV-001` item 9 |
+
+M6 introduces no M7 Migration endpoint, no consolidation/CTA behavior, no XLSX export, no cross-currency or tolerance matching, no inferred accounting classification, no Hard Close bypass, and no change to the M4 `CloseGateProvider` v1 interface or any Reporting-owned gate.

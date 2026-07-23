@@ -411,12 +411,39 @@ Metadata:
 
 The event never contains the command payload, command result, payload hash, idempotency key, sensitive fields, or encryption details.
 
-### Reconciliation
+### Reconciliation (`M6-GOV-001`)
 | Event | Producer | Trigger | Payload | Consumers | Effect |
 |---|---|---|---|---|---|
-| `StatementImported` | BankReconciliation | ImportStatement | reconciliationId, bankAccountId, lineCount | Audit | begin reconciliation |
-| `LineMatched` | BankReconciliation | ConfirmMatch | reconciliationId, lineId, txnId | Reporting | match status |
-| `ReconciliationCompleted` | BankReconciliation | CompleteReconciliation | reconciliationId, closingBalances | Reporting, Audit | reconciliation statement |
+| `StatementImported` | BankReconciliation | ImportStatement | reconciliationId, reconciliationAccountId, importBatchId, fileHash, importedCount, conflictCount | Audit | statement lines available for matching |
+| `MatchSuggestionsGenerated` | BankReconciliation | GenerateMatchSuggestions | reconciliationId, suggestedCount, unexplainedCount | Audit | suggestions available for review — no match confirmed |
+| `LineMatched` | BankReconciliation | MatchLine | reconciliationId, lineId, allocationIds[] | Audit | line moved to Matched, not yet reconciled |
+| `LineReconciled` | BankReconciliation | ConfirmMatch | reconciliationId, lineId, allocationIds[] | Reporting, Audit | line moved to Reconciled; Allocation(s) consumed |
+| `BankOnlyEntryPosted` | BankReconciliation | CreateEntryForBankLine, on approved commit | reconciliationId, lineId, journalEntryId, offsetAccountId, Money | Ledger(already posted), Reporting, Audit | line resolved and Reconciled by a manually classified entry |
+| `ReconciliationCompleted` | BankReconciliation | CompleteReconciliation, on approved commit | reconciliationId, reconciliationAccountId, periodRef, closingBalance, sourceDataWatermark, contentHash | Reporting, Audit | gate-eligible evidence available |
+| `ReconciliationReopened` | BankReconciliation | ReopenReconciliation, on approved commit | reconciliationId, reopenedBy, reason | Audit | prior evidence now re-editable; existing Hard Close unaffected until Period's own Reopen |
+
+None of the seven is subscribed to by Period — `CloseGateProvider` remains a **pull** contract (Period calls `evaluate()` synchronously at Hard Close time, §12.7), unchanged by this amendment, exactly matching M5's `ReportRun` events (§ Reporting above). Export (`GET /v1/reconciliations/{id}/statement`) produces no event — it is a pure read.
+
+#### M6 BankReconciliation event schemas
+
+All events use the frozen envelope (UUID event ID, canonical name, integer version, UTC occurred time, entity ID, correlation ID, causation ID, aggregate ID/version, payload), unchanged.
+
+```json
+{
+  "event_id":"2a4b6c8d-0e1f-4a2b-8c3d-4e5f6a7b8c9d",
+  "event_name":"ReconciliationCompleted",
+  "event_version":1,
+  "occurred_at":"2026-08-01T09:12:00.000Z",
+  "entity_id":"6503b7fb-6b03-4106-a7e7-b6c4692057ee",
+  "correlation_id":"070e4872-c8e3-4718-9937-70e09bc82784",
+  "causation_id":"9c1e5c2a-9d0e-4c8a-9c3a-1f9e7b0a2d3c",
+  "aggregate_id":"9c1e5c2a-9d0e-4c8a-9c3a-1f9e7b0a2d3c",
+  "aggregate_version":4,
+  "payload":{"reconciliation_account_id":"a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d","period_ref":"2026-07","closing_balance":{"amount":"12800000.0000","currency":"BDT"},"source_data_watermark":"2026-07-31T18:04:22.000Z","content_hash":"7ad2...c410"}
+}
+```
+
+`StatementImported`, `MatchSuggestionsGenerated`, `LineMatched`, `LineReconciled`, `BankOnlyEntryPosted`, and `ReconciliationReopened` follow the same envelope with their §"Payload" fields above; no separate schema is introduced for any of them.
 
 ### Migration
 | Event | Producer | Trigger | Payload | Consumers | Effect |
