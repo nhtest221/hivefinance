@@ -3,21 +3,26 @@
 namespace App\Reporting\Application;
 
 use App\Identity\Application\EntityReferenceQuery;
-use App\Models\Payables\Bill;
 use App\Models\Payables\DebitNote;
-use App\Models\Settlement\PartyCreditBalance;
 use App\Models\User;
+use App\Payables\Application\PayablesReportQuery;
+use App\Settlement\Application\AllocationQuery;
 use App\Support\Documents\DocumentActionResult;
 use App\Support\Documents\DocumentCommandSupport;
 use App\Support\Documents\ExactDecimal;
 
-/** API Contracts §13.9: the frozen five-bucket default AgeingBucketSet for Payables. */
+/**
+ * API Contracts §13.9: the frozen five-bucket default AgeingBucketSet for Payables.
+ * Payables and Settlement continue to own their reads (AP-001).
+ */
 final readonly class APAgeingQuery
 {
     public function __construct(
         private DocumentCommandSupport $commands,
         private AgeingBucketProvider $buckets,
         private EntityReferenceQuery $entities,
+        private PayablesReportQuery $payables,
+        private AllocationQuery $allocations,
     ) {}
 
     public function fetch(User $actor, string $entityId, string $asOf, ?string $vendorId): DocumentActionResult
@@ -31,10 +36,7 @@ final readonly class APAgeingQuery
         }
         $currency = $this->entities->functionalCurrency($entityId) ?? '';
 
-        $bills = Bill::query()->where('entity_id', $entityId)
-            ->whereIn('status', ['awaiting_payment', 'partially_paid'])
-            ->when($vendorId !== null, fn ($q) => $q->where('vendor_id', $vendorId))
-            ->orderBy('due_date')->get();
+        $bills = $this->payables->openBills($entityId, $vendorId);
 
         $detail = [];
         $summaryByVendor = [];
@@ -52,8 +54,8 @@ final readonly class APAgeingQuery
         $vendorIds = $vendorId !== null ? [$vendorId] : array_keys($summaryByVendor);
         $summary = [];
         foreach ($vendorIds as $id) {
-            $unappliedCredit = DebitNote::query()->where('entity_id', $entityId)->where('vendor_id', $id)->where('state', 'posted')->get()->reduce(fn (string $sum, DebitNote $n): string => ExactDecimal::add($sum, $n->undisposed_amount), '0.0000');
-            $partyCredit = PartyCreditBalance::query()->where('entity_id', $entityId)->where('party_type', 'vendor')->where('party_id', $id)->get()->reduce(fn (string $sum, PartyCreditBalance $b): string => ExactDecimal::add($sum, $b->available_balance), '0.0000');
+            $unappliedCredit = $this->payables->postedDebitNotesForVendor($entityId, $id)->reduce(fn (string $sum, DebitNote $n): string => ExactDecimal::add($sum, $n->undisposed_amount), '0.0000');
+            $partyCredit = $this->allocations->partyCreditBalanceTotal($entityId, 'vendor', $id);
             $totalsByBucket = array_map(fn (string $bucketId): array => ['bucket_id' => $bucketId, 'amount' => ['amount' => $summaryByVendor[$id]['totals'][$bucketId] ?? '0.0000', 'currency' => $currency]], $bucketSet->bucketIds());
             $summary[] = ['vendor_id' => $id, 'totals_by_bucket' => $totalsByBucket, 'credit_balances' => ['amount' => '0.0000', 'currency' => $currency], 'unapplied_credit' => ['amount' => ExactDecimal::add($unappliedCredit, $partyCredit), 'currency' => $currency], 'total_open' => ['amount' => $summaryByVendor[$id]['total_open'] ?? '0.0000', 'currency' => $currency]];
         }
