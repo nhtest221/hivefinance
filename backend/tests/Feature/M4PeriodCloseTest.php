@@ -96,10 +96,13 @@ it('returns close_gate_unmet directly with no mutation while M5/M6 evidence is u
     $period->update(['state' => 'SoftClosed']);
     Sanctum::actingAs($maker);
 
+    // bank_reconciliation_completed is vacuously satisfied here: this fixture configures no
+    // ReconciliationAccount, and M6-GOV-001 defines "mandatory" as "configured" (API
+    // Contracts §14.11) - zero configured accounts means zero requirements for this gate.
     $this->postJson('/v1/periods/'.$period->id.'/hard-close', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
         ->assertUnprocessable()
         ->assertJsonPath('details.rule', 'close_gate_unmet')
-        ->assertJsonPath('details.unmet_gates', ['trial_balance_reviewed', 'profit_and_loss_approved', 'balance_sheet_approved', 'vat_outputs_approved', 'bank_reconciliation_completed']);
+        ->assertJsonPath('details.unmet_gates', ['trial_balance_reviewed', 'profit_and_loss_approved', 'balance_sheet_approved', 'vat_outputs_approved']);
 
     $period->refresh();
     expect($period->state)->toBe('SoftClosed')
@@ -204,10 +207,12 @@ it('reads period detail with transitions and close-gate evidence, and lists with
         ->assertJsonPath('period.state', 'Open')
         ->assertJsonCount(5, 'period.close_gates');
 
+    // bank_reconciliation_completed is vacuously satisfied: no ReconciliationAccount is
+    // configured for this entity (API Contracts §14.11, M6-GOV-001).
     $this->getJson('/v1/periods?state=Open&limit=10', ['X-Entity-Id' => $entity->id])
         ->assertOk()
         ->assertJsonPath('periods.0.close_gate_summary.required', 5)
-        ->assertJsonPath('periods.0.close_gate_summary.satisfied', 0);
+        ->assertJsonPath('periods.0.close_gate_summary.satisfied', 1);
 });
 
 it('registers exactly the five frozen M4 period endpoints', function (): void {

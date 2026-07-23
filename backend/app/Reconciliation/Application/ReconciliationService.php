@@ -190,9 +190,9 @@ final readonly class ReconciliationService
         foreach ($targets as $line) {
             $groups = $lineGroups->get($line->id, collect());
             $newStatus = $groups->isEmpty() ? 'Unexplained' : 'Suggested';
-            $this->reconciliations->replaceSuggestions($line->id, $newStatus, $groups->all(), $line->version);
+            $updated = $this->reconciliations->replaceSuggestions($line->id, $newStatus, $groups->all(), $line->version);
             $newStatus === 'Suggested' ? $suggested++ : $unexplained++;
-            $summary[] = ['line_id' => $line->id, 'status' => $newStatus, 'suggestions' => $groups->all()];
+            $summary[] = ['line_id' => $line->id, 'status' => $newStatus, 'version' => $updated->version, 'suggestions' => $groups->all()];
         }
         unset($groupedLineIds);
 

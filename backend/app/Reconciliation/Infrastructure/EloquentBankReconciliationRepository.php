@@ -8,6 +8,7 @@ use App\Models\Reconciliation\ReconciliationMatchSuggestion;
 use App\Models\Reconciliation\ReconciliationMatchSuggestionAllocation;
 use App\Models\Reconciliation\ReconciliationStatementLine;
 use App\Reconciliation\Application\BankReconciliationRepository;
+use App\Support\Documents\ExactDecimal;
 use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Support\Carbon;
@@ -81,14 +82,17 @@ final class EloquentBankReconciliationRepository implements BankReconciliationRe
 
     public function duplicateLineExists(string $reconciliationAccountId, string $transactionDate, string $amount, string $currency, string $normalizedNarration, ?string $externalBankReference): bool
     {
+        // Amount/date are compared in PHP (ExactDecimal/Carbon), not via raw DB string
+        // equality: SQLite's dynamic typing normalizes "1000.0000" to "1000" and can attach
+        // a time component to a date column, which would silently break duplicate detection
+        // on SQLite while behaving correctly on PostgreSQL's strict column types.
         return ReconciliationStatementLine::query()
             ->where('reconciliation_account_id', $reconciliationAccountId)
-            ->where('transaction_date', $transactionDate)
-            ->where('amount', $amount)
             ->where('currency', $currency)
             ->where('normalized_narration', $normalizedNarration)
             ->whereRaw("COALESCE(external_bank_reference, '') = ?", [$externalBankReference ?? ''])
-            ->exists();
+            ->get(['transaction_date', 'amount'])
+            ->contains(fn (ReconciliationStatementLine $l): bool => $l->transaction_date->toDateString() === $transactionDate && ExactDecimal::compare($l->amount, $amount) === 0);
     }
 
     /**
