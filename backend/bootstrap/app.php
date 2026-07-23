@@ -7,6 +7,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -28,6 +29,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AuthenticationException $error, Request $request) {
             if ($request->expectsJson()) {
                 return response()->json(['error_code' => 'authentication_required', 'message' => 'Authentication is required.', 'details' => []], 401);
+            }
+        });
+        $exceptions->render(function (Throwable $error, Request $request) {
+            if ($error instanceof HttpExceptionInterface) {
+                return null;
+            }
+            if ($request->expectsJson()) {
+                return response()->json(['error_code' => 'internal_error', 'message' => 'An unexpected error occurred.', 'details' => []], 500);
             }
         });
     })
