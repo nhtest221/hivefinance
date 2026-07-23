@@ -17,6 +17,8 @@ use App\Http\Controllers\Period\PeriodController;
 use App\Http\Controllers\Receivables\CreditNoteController;
 use App\Http\Controllers\Receivables\CustomerController;
 use App\Http\Controllers\Receivables\InvoiceController;
+use App\Http\Controllers\Reconciliation\ReconciliationAccountController;
+use App\Http\Controllers\Reconciliation\ReconciliationController;
 use App\Http\Controllers\Reporting\ReportingController;
 use App\Http\Controllers\Reporting\ReportRunController;
 use App\Http\Controllers\Reports\LedgerReportController;
@@ -77,6 +79,24 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/report-runs', [ReportRunController::class, 'index'])->name('report-runs.index');
     Route::post('/report-runs/{id}/approve', [ReportRunController::class, 'approve'])->name('report-runs.approve');
     Route::get('/report-runs/{id}/export', [ReportRunController::class, 'export'])->name('report-runs.export');
+
+    Route::post('/reconciliation-accounts', [ReconciliationAccountController::class, 'store'])->name('reconciliation-accounts.store');
+    Route::get('/reconciliation-accounts', [ReconciliationAccountController::class, 'index'])->name('reconciliation-accounts.index');
+    Route::get('/reconciliation-accounts/{id}', [ReconciliationAccountController::class, 'show'])->name('reconciliation-accounts.show');
+    Route::patch('/reconciliation-accounts/{id}', [ReconciliationAccountController::class, 'update'])->name('reconciliation-accounts.update');
+
+    Route::post('/reconciliations', [ReconciliationController::class, 'store'])->name('reconciliations.store');
+    Route::get('/reconciliations', [ReconciliationController::class, 'index'])->name('reconciliations.index');
+    Route::get('/reconciliations/{id}', [ReconciliationController::class, 'show'])->name('reconciliations.show');
+    Route::post('/reconciliations/{id}/import', [ReconciliationController::class, 'import'])->name('reconciliations.import');
+    Route::post('/reconciliations/{id}/match-suggestions', [ReconciliationController::class, 'generateMatchSuggestions'])->name('reconciliations.match-suggestions');
+    Route::get('/reconciliations/{id}/unmatched', [ReconciliationController::class, 'unmatched'])->name('reconciliations.unmatched');
+    Route::post('/reconciliations/{id}/lines/{lineId}/match', [ReconciliationController::class, 'matchLine'])->name('reconciliations.lines.match');
+    Route::post('/reconciliations/{id}/lines/{lineId}/confirm', [ReconciliationController::class, 'confirmMatch'])->name('reconciliations.lines.confirm');
+    Route::post('/reconciliations/{id}/lines/{lineId}/bank-entry', [ReconciliationController::class, 'createBankEntry'])->name('reconciliations.lines.bank-entry');
+    Route::post('/reconciliations/{id}/complete', [ReconciliationController::class, 'complete'])->name('reconciliations.complete');
+    Route::post('/reconciliations/{id}/reopen', [ReconciliationController::class, 'reopen'])->name('reconciliations.reopen');
+    Route::get('/reconciliations/{id}/statement', [ReconciliationController::class, 'export'])->name('reconciliations.statement');
 
     Route::get('/tax/codes', [TaxController::class, 'index'])->name('tax.codes.index');
     Route::post('/tax/codes', [TaxController::class, 'store'])->name('tax.codes.store');

@@ -43,7 +43,6 @@ use App\Period\Application\PeriodApprovalCommandHandler;
 use App\Period\Application\PeriodCloseService;
 use App\Period\Application\PeriodQuery;
 use App\Period\Infrastructure\EloquentPeriodQuery;
-use App\Period\Infrastructure\UnavailableCloseGateProvider;
 use App\Receivables\Application\CreditNoteApprovalCommandHandler;
 use App\Receivables\Application\CreditNoteDispositionApprovalCommandHandler;
 use App\Receivables\Application\CreditNoteDispositionService;
@@ -56,6 +55,13 @@ use App\Receivables\Application\OpenReceivableService;
 use App\Receivables\Infrastructure\EloquentCreditNoteQuery;
 use App\Receivables\Infrastructure\EloquentCreditNoteRepository;
 use App\Receivables\Infrastructure\EloquentOpenReceivableService;
+use App\Reconciliation\Application\BankReconciliationRepository;
+use App\Reconciliation\Application\ReconciliationAccountRepository;
+use App\Reconciliation\Application\ReconciliationApprovalCommandHandler;
+use App\Reconciliation\Application\ReconciliationService;
+use App\Reconciliation\Infrastructure\EloquentBankReconciliationRepository;
+use App\Reconciliation\Infrastructure\EloquentReconciliationAccountRepository;
+use App\Reconciliation\Infrastructure\ReconciliationCloseGateProvider;
 use App\Reporting\Application\AccountClassificationProvider;
 use App\Reporting\Application\AgeingBucketProvider;
 use App\Reporting\Application\CashViewPolicyProvider;
@@ -73,9 +79,11 @@ use App\Reporting\Infrastructure\EloquentReportRunRepository;
 use App\Reporting\Infrastructure\LedgerGeneralLedgerQuery;
 use App\Reporting\Infrastructure\LedgerTrialBalanceQuery;
 use App\Reporting\Infrastructure\ReportingCloseGateProvider;
+use App\Settlement\Application\AllocationQuery;
 use App\Settlement\Application\DocumentActivityQuery;
 use App\Settlement\Application\SettlementApprovalCommandHandler;
 use App\Settlement\Application\SettlementService;
+use App\Settlement\Infrastructure\EloquentAllocationQuery;
 use App\Settlement\Infrastructure\EloquentDocumentActivityQuery;
 use App\Tax\Application\TaxApprovalCommandHandler;
 use App\Tax\Application\TaxCommandExecutor;
@@ -112,14 +120,17 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->bind(CashViewPolicyProvider::class, EloquentCashViewPolicyProvider::class);
         $this->app->bind(TrialBalanceQuery::class, LedgerTrialBalanceQuery::class);
         $this->app->bind(GeneralLedgerQuery::class, LedgerGeneralLedgerQuery::class);
+        $this->app->bind(AllocationQuery::class, EloquentAllocationQuery::class);
+        $this->app->bind(ReconciliationAccountRepository::class, EloquentReconciliationAccountRepository::class);
+        $this->app->bind(BankReconciliationRepository::class, EloquentBankReconciliationRepository::class);
         $this->app->singleton(ApprovalCommandRegistry::class);
         $this->app->singleton(CloseGateProviderRegistry::class, function (): CloseGateProviderRegistry {
             $registry = new CloseGateProviderRegistry;
-            // API Contracts §13.12: ReportingCloseGateProvider now supplies the four
-            // Reporting-owned gates. M6 Reconciliation does not exist yet, so
-            // bank_reconciliation_completed honestly stays `unmet` until it does.
+            // API Contracts §13.12: ReportingCloseGateProvider supplies the four
+            // Reporting-owned gates. API Contracts §14.11: ReconciliationCloseGateProvider
+            // now supplies bank_reconciliation_completed (M6-GOV-001).
             $registry->register('reporting', $this->app->make(ReportingCloseGateProvider::class));
-            $registry->register('reconciliation', new UnavailableCloseGateProvider('reconciliation'));
+            $registry->register('reconciliation', $this->app->make(ReconciliationCloseGateProvider::class));
 
             return $registry;
         });
@@ -156,5 +167,9 @@ final class AppServiceProvider extends ServiceProvider
         $registry->register(new InvoiceVoidApprovalCommandHandler($this->app->make(InvoiceVoidService::class)));
         $registry->register(new BillVoidApprovalCommandHandler($this->app->make(BillVoidService::class)));
         $registry->register(new ReportRunApprovalCommandHandler($this->app->make(ReportRunService::class)));
+        $reconciliations = $this->app->make(ReconciliationService::class);
+        foreach (['create_bank_entry', 'complete', 'reopen'] as $type) {
+            $registry->register(new ReconciliationApprovalCommandHandler($reconciliations, $type));
+        }
     }
 }
