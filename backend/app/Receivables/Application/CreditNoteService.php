@@ -162,6 +162,10 @@ final readonly class CreditNoteService
 
             return new DocumentActionResult($result->payload, $result->status, $result->headers);
         }
+        $note = $this->notes->getById($entityId, $id);
+        if ($note !== null && $note->created_by === $actor->id) {
+            return $this->commands->error('sod_exception_required', 'The credit note maker cannot directly post the credit note.', 403);
+        }
 
         return $this->executePost($entityId, $id, $expected, (string) $key, $this->commands->hash([$id, $expected]), $actor->id, $actor->id, (string) $key);
     }
