@@ -2130,6 +2130,8 @@ The **source-data watermark** is the maximum `posted_at` of any qualifying poste
 
 `POST /v1/report-runs` (`reporting.report_runs.generate`, `W0`) rules: `report_source_not_ready`, `missing_report_layout`, `missing_account_classification`, `unclassified_account`, `missing_ageing_bucket_set`, `missing_cash_view_policy`, `report_unbalanced`; generation is all-or-nothing — a failed validation creates no `ReportRun` row.
 
+**`report_source_not_ready` trigger definition (Governance Clarification Record `M5-GOV-002`):** returned only when the system cannot prove that a required source projection or source contract is complete and usable for the requested report scope and source-data watermark. Valid triggers: a required source projection has never been initialized or rebuilt; a required source adapter is unavailable; the source watermark is missing, invalid, or behind the minimum watermark required for the requested report; a required upstream projection reports failed, rebuilding, incomplete, or stale; the requested entity, period, as-of date, basis, or filter scope cannot be reproduced from a complete source snapshot; or a required source contract returns an explicit not-ready result. It must **not** be returned merely because the report contains zero rows, an entity has no transactions, all balances are zero, a filter produces an empty result, the requested period is open, a report has not previously been generated, or optional comparison data is unavailable — a normal empty but complete source result is a successful report with zero rows and valid zero totals, subject to the report's own accounting invariants. On trigger: no `ReportRun`, snapshot, content hash, approval request, audit business event, or business outbox event is created, and no accounting mutation occurs; exact idempotency replay of the same request remains side-effect free. `details` on this error identifies only the unavailable source category and readiness state — never infrastructure secrets, SQL, internal paths, or cross-entity data.
+
 ```json
 {"request":{},"response":{"report_run":{"id":"7e4c2b0a-1a3e-4b7a-9c2e-3f5d6a7b8c9d","state":"Approved","approved_by":"<uuid>","approved_at":"2026-08-01T09:12:00.000Z","reviewed_by":"<uuid>","reviewed_at":"2026-08-01T09:12:00.000Z","version":2}}}
 ```
@@ -2275,7 +2277,7 @@ The existing Trial Balance, General Ledger, and account-balance implementation i
 
 ### 13.15 Stable errors
 
-New `details.rule` values, using the frozen shared envelope (§2): `missing_report_layout` (422), `missing_account_classification` (422), `unclassified_account` (422), `missing_ageing_bucket_set` (422), `missing_cash_view_policy` (422), `report_source_not_ready` (422), `report_unbalanced` (422), `report_run_not_approved` (422), `report_run_already_approved` (422), `report_run_rejected` (422), `report_run_superseded` (422), `unsupported_basis` (422). `report_run_stale` surfaces as an `unmet` gate, never a client-facing error (§13.12).
+New `details.rule` values, using the frozen shared envelope (§2): `missing_report_layout` (422), `missing_account_classification` (422), `unclassified_account` (422), `missing_ageing_bucket_set` (422), `missing_cash_view_policy` (422), `report_source_not_ready` (422, exact trigger conditions defined in §13.4 per `M5-GOV-002`), `report_unbalanced` (422), `report_run_not_approved` (422), `report_run_already_approved` (422), `report_run_rejected` (422), `report_run_superseded` (422), `unsupported_basis` (422). `report_run_stale` surfaces as an `unmet` gate, never a client-facing error (§13.12).
 
 ### 13.16 Traceability
 
@@ -2289,5 +2291,6 @@ New `details.rule` values, using the frozen shared envelope (§2): `missing_repo
 | Five-bucket ageing default, versioned | `M5-GOV-001` item 4 |
 | One-step checker review/approval, generator cannot self-approve | `M5-GOV-001` item 5 |
 | PDF/CSV export, XLSX excluded | `M5-GOV-001` item 6 |
+| `report_source_not_ready` exact trigger/non-trigger conditions and side-effect-free failure | `M5-GOV-002` |
 
 M5 introduces no M6 Reconciliation endpoint, no consolidation/CTA behavior, no XLSX export, no hardcoded ageing bucket outside versioned configuration, no inferred account classification, and no Hard Close bypass.
