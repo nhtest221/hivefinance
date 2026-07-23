@@ -42,7 +42,7 @@ final readonly class APAgeingQuery
             if (ExactDecimal::compare($bill->open_balance, '0.0000') <= 0) {
                 continue;
             }
-            $daysOverdue = (int) round((strtotime($asOf) - strtotime($bill->due_date->toDateString())) / 86400);
+            $daysOverdue = (int) round((strtotime($asOf) - strtotime((string) $bill->due_date->toDateString())) / 86400);
             $bucketId = $bucketSet->bucketFor($daysOverdue) ?? 'not_due';
             $detail[] = ['vendor_id' => $bill->vendor_id, 'bill_id' => $bill->id, 'document_number' => $bill->document_number, 'due_date' => $bill->due_date->toDateString(), 'open_balance' => ['amount' => $bill->open_balance, 'currency' => $bill->currency], 'bucket_id' => $bucketId];
             $summaryByVendor[$bill->vendor_id]['totals'][$bucketId] = ExactDecimal::add($summaryByVendor[$bill->vendor_id]['totals'][$bucketId] ?? '0.0000', $bill->open_balance);

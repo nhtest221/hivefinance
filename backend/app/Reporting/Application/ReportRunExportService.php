@@ -72,14 +72,14 @@ final readonly class ReportRunExportService
     private function toCsv(array $metadata, array $rows): string
     {
         $stream = fopen('php://temp', 'r+');
-        fputcsv($stream, ['field', 'value']);
+        fputcsv($stream, ['field', 'value'], escape: '\\');
         foreach ($metadata as $key => $value) {
-            fputcsv($stream, [$key, is_array($value) ? json_encode($value, JSON_THROW_ON_ERROR) : (string) ($value ?? '')]);
+            fputcsv($stream, [$key, is_array($value) ? json_encode($value, JSON_THROW_ON_ERROR) : (string) ($value ?? '')], escape: '\\');
         }
-        fputcsv($stream, []);
-        fputcsv($stream, ['content_path', 'value']);
+        fputcsv($stream, [], escape: '\\');
+        fputcsv($stream, ['content_path', 'value'], escape: '\\');
         foreach ($rows as $row) {
-            fputcsv($stream, [$row['path'], $row['value']]);
+            fputcsv($stream, [$row['path'], $row['value']], escape: '\\');
         }
         rewind($stream);
         $csv = stream_get_contents($stream);

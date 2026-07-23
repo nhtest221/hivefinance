@@ -42,7 +42,7 @@ final readonly class ARAgeingQuery
             if (ExactDecimal::compare($invoice->open_balance, '0.0000') <= 0) {
                 continue;
             }
-            $daysOverdue = (int) round((strtotime($asOf) - strtotime($invoice->due_date->toDateString())) / 86400);
+            $daysOverdue = (int) round((strtotime($asOf) - strtotime((string) $invoice->due_date->toDateString())) / 86400);
             $bucketId = $bucketSet->bucketFor($daysOverdue) ?? 'not_due';
             $detail[] = ['customer_id' => $invoice->customer_id, 'invoice_id' => $invoice->id, 'document_number' => $invoice->document_number, 'due_date' => $invoice->due_date->toDateString(), 'open_balance' => ['amount' => $invoice->open_balance, 'currency' => $invoice->currency], 'bucket_id' => $bucketId];
             $summaryByCustomer[$invoice->customer_id]['totals'][$bucketId] = ExactDecimal::add($summaryByCustomer[$invoice->customer_id]['totals'][$bucketId] ?? '0.0000', $invoice->open_balance);

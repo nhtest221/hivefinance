@@ -137,7 +137,7 @@ it('exports an immutable ReportRun snapshot as CSV and PDF without recalculating
     $pdf = $this->get('/v1/report-runs/'.$run['id'].'/export?format=pdf', ['X-Entity-Id' => $entity->id])
         ->assertOk()
         ->assertHeader('Content-Type', 'application/pdf');
-    expect(substr($pdf->content(), 0, 4))->toBe('%PDF');
+    expect(substr((string) $pdf->content(), 0, 4))->toBe('%PDF');
 
     $this->get('/v1/report-runs/'.$run['id'].'/export?format=xlsx', ['X-Entity-Id' => $entity->id])
         ->assertStatus(400);
