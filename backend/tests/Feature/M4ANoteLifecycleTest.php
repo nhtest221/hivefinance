@@ -43,10 +43,10 @@ function m4aTaxSnapshot(string $outputAccountId, string $inputAccountId): array
     return ['treatment' => 'standard', 'rate' => '15.00000000', 'calculation_method' => 'exclusive', 'recoverable' => true, 'gl_mapping' => ['output_account_id' => $outputAccountId, 'input_account_id' => $inputAccountId]];
 }
 
-/** @return array{Entity,Invoice,InvoiceLine} */
+/** @return array{Entity,Invoice,InvoiceLine,User,User} */
 function m4aInvoiceFixture(): array
 {
-    [, , $entity] = m4aActors(['receivables.credit_notes.create', 'receivables.credit_notes.read', 'receivables.credit_notes.post']);
+    [$maker, $checker, $entity] = m4aActors(['receivables.credit_notes.create', 'receivables.credit_notes.read', 'receivables.credit_notes.post']);
     $customer = Customer::query()->create(['entity_id' => $entity->id, 'name' => 'Cust', 'normalized_name' => 'CUST', 'type' => 'local', 'default_currency' => 'BDT', 'payment_terms' => 'net_30', 'status' => 'active', 'version' => 1, 'created_by' => (string) Str::uuid()]);
     $revenue = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '4000', 'name' => 'Revenue', 'type' => 'revenue', 'normal_balance' => 'credit', 'status' => 'active']);
     $outputVat = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '2050', 'name' => 'Output VAT', 'type' => 'liability', 'normal_balance' => 'credit', 'status' => 'active']);
@@ -65,12 +65,11 @@ function m4aInvoiceFixture(): array
     $invoice = Invoice::query()->create(['entity_id' => $entity->id, 'document_number' => 'INV-1', 'customer_id' => $customer->id, 'invoice_date' => '2026-07-01', 'due_date' => '2026-07-31', 'currency' => 'BDT', 'subtotal' => '100.0000', 'tax_total' => '15.0000', 'total' => '115.0000', 'open_balance' => '115.0000', 'status' => 'sent', 'version' => 1, 'created_by' => (string) Str::uuid()]);
     $line = $invoice->lines()->create(['entity_id' => $entity->id, 'line_no' => 1, 'description' => 'Service', 'quantity' => '1.0000', 'unit_price' => '100.0000', 'tax_snapshot' => m4aTaxSnapshot($outputVat->id, (string) Str::uuid()), 'line_amount' => '100.0000', 'tax_amount' => '15.0000', 'total_amount' => '115.0000']);
 
-    return [$entity, $invoice, $line];
+    return [$entity, $invoice, $line, $maker->refresh(), $checker->refresh()];
 }
 
 it('creates, edits, and posts a credit note with correct tax and ledger effects', function (): void {
-    [$entity, $invoice, $line] = m4aInvoiceFixture();
-    $maker = User::query()->where('active_entity_id', $entity->id)->first();
+    [$entity, $invoice, $line, $maker, $checker] = m4aInvoiceFixture();
     Sanctum::actingAs($maker);
 
     $created = $this->postJson('/v1/credit-notes', [
@@ -93,6 +92,9 @@ it('creates, edits, and posts a credit note with correct tax and ledger effects'
         ->assertOk()->assertJsonPath('credit_note.version', 2)->json('credit_note');
     expect($updated['narrative'])->toBe('Revised correction');
 
+    // Posting is a distinct actor from the one who drafted the note (sod_exception_required
+    // otherwise — see "blocks the credit note maker from posting their own draft" below).
+    Sanctum::actingAs($checker);
     $posted = $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
         ->assertCreated()
         ->assertJsonPath('credit_note.state', 'posted')
@@ -110,6 +112,20 @@ it('creates, edits, and posts a credit note with correct tax and ledger effects'
 
     $this->getJson('/v1/credit-notes?state=posted&limit=10', ['X-Entity-Id' => $entity->id])
         ->assertOk()->assertJsonPath('credit_notes.0.id', $posted['id']);
+});
+
+it('blocks the credit note maker from posting their own draft when no approval policy is configured', function (): void {
+    [$entity, $invoice, $line, $maker] = m4aInvoiceFixture();
+    Sanctum::actingAs($maker);
+
+    $created = $this->postJson('/v1/credit-notes', [
+        'party_type' => 'customer', 'document_type' => 'invoice', 'party_id' => $invoice->customer_id,
+        'source_document_id' => $invoice->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
+        'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $line->id, 'net_amount' => ['amount' => '40.0000', 'currency' => 'BDT']]],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('credit_note');
+
+    $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
+        ->assertForbidden()->assertJsonPath('error_code', 'sod_exception_required');
 });
 
 it('rejects a direction mismatch and a correction that exceeds the source line', function (): void {
@@ -156,7 +172,7 @@ it('routes credit note posting through durable maker-checker approval when confi
 });
 
 it('mirrors create, edit and post for debit notes with vendor/bill direction', function (): void {
-    [, , $entity] = m4aActors(['payables.debit_notes.create', 'payables.debit_notes.read', 'payables.debit_notes.post']);
+    [$maker, $checker, $entity] = m4aActors(['payables.debit_notes.create', 'payables.debit_notes.read', 'payables.debit_notes.post']);
     $vendor = Vendor::query()->create(['entity_id' => $entity->id, 'name' => 'Vend', 'normalized_name' => 'VEND', 'default_currency' => 'BDT', 'payment_terms' => 'net_30', 'status' => 'active', 'version' => 1, 'created_by' => (string) Str::uuid()]);
     $expense = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '5000', 'name' => 'Expense', 'type' => 'expense', 'normal_balance' => 'debit', 'status' => 'active']);
     $inputVat = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1050', 'name' => 'Input VAT', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']);
@@ -173,7 +189,6 @@ it('mirrors create, edit and post for debit notes with vendor/bill direction', f
     $bill = Bill::query()->create(['entity_id' => $entity->id, 'document_number' => 'BILL-1', 'vendor_id' => $vendor->id, 'bill_date' => '2026-07-01', 'due_date' => '2026-07-31', 'currency' => 'BDT', 'subtotal' => '200.0000', 'tax_total' => '30.0000', 'total' => '230.0000', 'open_balance' => '230.0000', 'status' => 'awaiting_payment', 'version' => 1, 'created_by' => (string) Str::uuid()]);
     $line = BillLine::query()->create(['bill_id' => $bill->id, 'entity_id' => $entity->id, 'line_no' => 1, 'description' => 'Goods', 'quantity' => '1.0000', 'unit_price' => '200.0000', 'expense_account_id' => $expense->id, 'tax_snapshot' => m4aTaxSnapshot((string) Str::uuid(), $inputVat->id), 'line_amount' => '200.0000', 'tax_amount' => '30.0000', 'total_amount' => '230.0000']);
 
-    $maker = User::query()->where('active_entity_id', $entity->id)->first();
     Sanctum::actingAs($maker);
 
     $created = $this->postJson('/v1/debit-notes', [
@@ -185,6 +200,9 @@ it('mirrors create, edit and post for debit notes with vendor/bill direction', f
 
     expect($created['lines'][0]['tax_amount']['amount'])->toBe('15.0000');
 
+    // Posting is a distinct actor from the one who drafted the note (sod_exception_required
+    // otherwise — see "blocks the debit note maker from posting their own draft" below).
+    Sanctum::actingAs($checker);
     $posted = $this->postJson('/v1/debit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
         ->assertCreated()
         ->assertJsonPath('debit_note.state', 'posted')
@@ -196,4 +214,29 @@ it('mirrors create, edit and post for debit notes with vendor/bill direction', f
     expect(OutboxMessage::query()->where('event_type', 'DebitNoteIssued')->exists())->toBeTrue();
 
     $this->getJson('/v1/debit-notes/'.$posted['id'], ['X-Entity-Id' => $entity->id])->assertOk()->assertJsonPath('debit_note.state', 'posted');
+});
+
+it('blocks the debit note maker from posting their own draft when no approval policy is configured', function (): void {
+    [$maker, , $entity] = m4aActors(['payables.debit_notes.create', 'payables.debit_notes.read', 'payables.debit_notes.post']);
+    $vendor = Vendor::query()->create(['entity_id' => $entity->id, 'name' => 'Vend', 'normalized_name' => 'VEND', 'default_currency' => 'BDT', 'payment_terms' => 'net_30', 'status' => 'active', 'version' => 1, 'created_by' => (string) Str::uuid()]);
+    $expense = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '5000', 'name' => 'Expense', 'type' => 'expense', 'normal_balance' => 'debit', 'status' => 'active']);
+    $inputVat = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '1050', 'name' => 'Input VAT', 'type' => 'asset', 'normal_balance' => 'debit', 'status' => 'active']);
+    config()->set('documents.reason_codes', ['CONFIGURED_REASON']);
+    config()->set('valuation.tax.exclusive_methods', ['exclusive']);
+    config()->set('valuation.fx.rounding_scale', 4);
+    config()->set('valuation.fx.rounding_mode', 'half_up');
+    config()->set('documents.debit_note.number_prefix', 'DN');
+    config()->set('documents.debit_note.number_format', '{prefix}-{sequence}');
+    $bill = Bill::query()->create(['entity_id' => $entity->id, 'document_number' => 'BILL-2', 'vendor_id' => $vendor->id, 'bill_date' => '2026-07-01', 'due_date' => '2026-07-31', 'currency' => 'BDT', 'subtotal' => '200.0000', 'tax_total' => '30.0000', 'total' => '230.0000', 'open_balance' => '230.0000', 'status' => 'awaiting_payment', 'version' => 1, 'created_by' => (string) Str::uuid()]);
+    $line = BillLine::query()->create(['bill_id' => $bill->id, 'entity_id' => $entity->id, 'line_no' => 1, 'description' => 'Goods', 'quantity' => '1.0000', 'unit_price' => '200.0000', 'expense_account_id' => $expense->id, 'tax_snapshot' => m4aTaxSnapshot((string) Str::uuid(), $inputVat->id), 'line_amount' => '200.0000', 'tax_amount' => '30.0000', 'total_amount' => '230.0000']);
+    Sanctum::actingAs($maker);
+
+    $created = $this->postJson('/v1/debit-notes', [
+        'party_type' => 'vendor', 'document_type' => 'bill', 'party_id' => $bill->vendor_id,
+        'source_document_id' => $bill->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
+        'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $line->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('debit_note');
+
+    $this->postJson('/v1/debit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
+        ->assertForbidden()->assertJsonPath('error_code', 'sod_exception_required');
 });

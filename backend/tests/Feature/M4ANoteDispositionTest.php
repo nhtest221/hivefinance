@@ -19,14 +19,17 @@ use Laravel\Sanctum\Sanctum;
 
 uses(RefreshDatabase::class);
 
-/** @return array{Entity,User,Invoice,Invoice} */
+/** @return array{Entity,User,User,Invoice,Invoice} */
 function m4aDispositionFixture(): array
 {
     $entity = Entity::query()->create(['legal_name' => 'M4A Disposition '.Str::uuid(), 'functional_currency' => 'BDT']);
     $maker = User::query()->create(['name' => 'Maker', 'email' => 'm4a-disp-'.Str::uuid().'@test.local', 'password' => 'secret-password', 'status' => 'active', 'active_entity_id' => $entity->id]);
+    $checker = User::query()->create(['name' => 'Checker', 'email' => 'm4a-disp-checker-'.Str::uuid().'@test.local', 'password' => 'secret-password', 'status' => 'active', 'active_entity_id' => $entity->id]);
     $role = Role::query()->create(['entity_id' => $entity->id, 'name' => 'Owner', 'slug' => 'owner', 'is_system' => true]);
     $maker->entities()->attach($entity->id, ['status' => 'active']);
     $maker->roles()->attach($role->id, ['entity_id' => $entity->id]);
+    $checker->entities()->attach($entity->id, ['status' => 'active']);
+    $checker->roles()->attach($role->id, ['entity_id' => $entity->id]);
     AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => '2026-07', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open']);
 
     $revenue = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '4000', 'name' => 'Revenue', 'type' => 'revenue', 'normal_balance' => 'credit', 'status' => 'active']);
@@ -51,11 +54,11 @@ function m4aDispositionFixture(): array
     $sourceInvoice->lines()->create(['entity_id' => $entity->id, 'line_no' => 1, 'description' => 'Service', 'quantity' => '1.0000', 'unit_price' => '100.0000', 'line_amount' => '100.0000', 'tax_amount' => '0.0000', 'total_amount' => '100.0000']);
     $targetInvoice = Invoice::query()->create(['entity_id' => $entity->id, 'document_number' => 'INV-2', 'customer_id' => $customer->id, 'invoice_date' => '2026-07-05', 'due_date' => '2026-08-04', 'currency' => 'BDT', 'subtotal' => '200.0000', 'tax_total' => '0.0000', 'total' => '200.0000', 'open_balance' => '200.0000', 'status' => 'sent', 'version' => 1, 'created_by' => (string) Str::uuid()]);
 
-    return [$entity, $maker, $sourceInvoice, $targetInvoice];
+    return [$entity, $maker, $checker, $sourceInvoice, $targetInvoice];
 }
 
 it('holds, applies from held, refunds, and reverses a credit note while keeping the five-field invariant', function (): void {
-    [$entity, $maker, $sourceInvoice, $targetInvoice] = m4aDispositionFixture();
+    [$entity, $maker, $checker, $sourceInvoice, $targetInvoice] = m4aDispositionFixture();
     Sanctum::actingAs($maker);
 
     $created = $this->postJson('/v1/credit-notes', [
@@ -64,9 +67,11 @@ it('holds, applies from held, refunds, and reverses a credit note while keeping 
         'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $sourceInvoice->lines->first()->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
     ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('credit_note');
 
+    Sanctum::actingAs($checker);
     $posted = $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])
         ->assertCreated()->assertJsonPath('credit_note.undisposed_amount.amount', '100.0000')->json('credit_note');
 
+    Sanctum::actingAs($maker);
     // HOLD 60 of the 100 undisposed into a CreditTranche.
     $held = $this->postJson('/v1/credit-notes/'.$posted['id'].'/hold', ['hold_date' => '2026-07-22', 'amount' => ['amount' => '60.0000', 'currency' => 'BDT']], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
         ->assertCreated()
@@ -127,27 +132,30 @@ it('holds, applies from held, refunds, and reverses a credit note while keeping 
 });
 
 it('rejects hold, apply, and refund amounts that exceed the available balance', function (): void {
-    [$entity, $maker, $sourceInvoice] = m4aDispositionFixture();
+    [$entity, $maker, $checker, $sourceInvoice] = m4aDispositionFixture();
     Sanctum::actingAs($maker);
     $created = $this->postJson('/v1/credit-notes', [
         'party_type' => 'customer', 'document_type' => 'invoice', 'party_id' => $sourceInvoice->customer_id,
         'source_document_id' => $sourceInvoice->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
         'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $sourceInvoice->lines->first()->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
     ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('credit_note');
+    Sanctum::actingAs($checker);
     $posted = $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('credit_note');
 
+    Sanctum::actingAs($maker);
     $this->postJson('/v1/credit-notes/'.$posted['id'].'/hold', ['hold_date' => '2026-07-22', 'amount' => ['amount' => '150.0000', 'currency' => 'BDT']], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
         ->assertUnprocessable()->assertJsonPath('details.rule', 'insufficient_note_remaining');
 });
 
 it('reverses a posted credit note with no disposition, restoring it to draft-equivalent zero state', function (): void {
-    [$entity, $maker, $sourceInvoice] = m4aDispositionFixture();
+    [$entity, $maker, $checker, $sourceInvoice] = m4aDispositionFixture();
     Sanctum::actingAs($maker);
     $created = $this->postJson('/v1/credit-notes', [
         'party_type' => 'customer', 'document_type' => 'invoice', 'party_id' => $sourceInvoice->customer_id,
         'source_document_id' => $sourceInvoice->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
         'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $sourceInvoice->lines->first()->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
     ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('credit_note');
+    Sanctum::actingAs($checker);
     $posted = $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('credit_note');
 
     $reversed = $this->postJson('/v1/credit-notes/'.$posted['id'].'/reverse', [
@@ -172,9 +180,12 @@ it('reverses a posted credit note with no disposition, restoring it to draft-equ
 it('mirrors hold, apply, and refund for debit notes with vendor/bill direction and AP debited on apply', function (): void {
     $entity = Entity::query()->create(['legal_name' => 'M4A Debit Disposition '.Str::uuid(), 'functional_currency' => 'BDT']);
     $maker = User::query()->create(['name' => 'Maker', 'email' => 'm4a-dn-disp-'.Str::uuid().'@test.local', 'password' => 'secret-password', 'status' => 'active', 'active_entity_id' => $entity->id]);
+    $checker = User::query()->create(['name' => 'Checker', 'email' => 'm4a-dn-disp-checker-'.Str::uuid().'@test.local', 'password' => 'secret-password', 'status' => 'active', 'active_entity_id' => $entity->id]);
     $role = Role::query()->create(['entity_id' => $entity->id, 'name' => 'Owner', 'slug' => 'owner', 'is_system' => true]);
     $maker->entities()->attach($entity->id, ['status' => 'active']);
     $maker->roles()->attach($role->id, ['entity_id' => $entity->id]);
+    $checker->entities()->attach($entity->id, ['status' => 'active']);
+    $checker->roles()->attach($role->id, ['entity_id' => $entity->id]);
     AccountingPeriod::query()->create(['entity_id' => $entity->id, 'period_ref' => '2026-07', 'starts_on' => '2026-07-01', 'ends_on' => '2026-07-31', 'state' => 'Open']);
 
     $expense = LedgerAccount::query()->create(['entity_id' => $entity->id, 'code' => '5000', 'name' => 'Expense', 'type' => 'expense', 'normal_balance' => 'debit', 'status' => 'active']);
@@ -204,8 +215,10 @@ it('mirrors hold, apply, and refund for debit notes with vendor/bill direction a
         'source_document_id' => $sourceBill->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
         'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $line->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
     ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('debit_note');
+    Sanctum::actingAs($checker);
     $posted = $this->postJson('/v1/debit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('debit_note');
 
+    Sanctum::actingAs($maker);
     $held = $this->postJson('/v1/debit-notes/'.$posted['id'].'/hold', ['hold_date' => '2026-07-22', 'amount' => ['amount' => '30.0000', 'currency' => 'BDT']], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
         ->assertCreated()->assertJsonPath('debit_note.held_remaining_amount.amount', '30.0000')->json();
     $trancheId = $held['credit_sources'][0]['credit_tranche_id'];
