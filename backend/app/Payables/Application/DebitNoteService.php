@@ -477,7 +477,7 @@ final readonly class DebitNoteService
     /** @return array<string,mixed> */
     private function money(string $amount, string $currency): array
     {
-        return ['amount' => $amount, 'currency' => $currency];
+        return ExactDecimal::money($amount, $currency);
     }
 
     private function notFound(): DocumentActionResult

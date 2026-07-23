@@ -1161,7 +1161,7 @@ final readonly class SettlementService
     /** @return array{amount:string,currency:string} */
     private function money(string $amount, string $currency): array
     {
-        return ['amount' => ExactDecimal::normalize($amount), 'currency' => strtoupper($currency)];
+        return ExactDecimal::money($amount, $currency);
     }
 
     private function correlation(): string
