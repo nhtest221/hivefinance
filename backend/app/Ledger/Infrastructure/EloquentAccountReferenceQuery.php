@@ -21,4 +21,9 @@ final class EloquentAccountReferenceQuery implements AccountReferenceQuery
     {
         return LedgerAccount::query()->where('entity_id', $entityId)->whereKey($accountId)->where('type', 'asset')->where('status', 'active')->whereNotNull('bank_attributes')->exists();
     }
+
+    public function isActiveAsset(string $entityId, string $accountId): bool
+    {
+        return LedgerAccount::query()->where('entity_id', $entityId)->whereKey($accountId)->where('type', 'asset')->where('status', 'active')->exists();
+    }
 }
