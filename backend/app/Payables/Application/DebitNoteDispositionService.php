@@ -548,7 +548,7 @@ final readonly class DebitNoteDispositionService
     /** @return array<string,mixed> */
     private function money(string $amount, string $currency): array
     {
-        return ['amount' => $amount, 'currency' => $currency];
+        return ExactDecimal::money($amount, $currency);
     }
 
     private function reconflict(string $entityId, string $id, int $expected, ?DebitNote $note): DocumentActionResult

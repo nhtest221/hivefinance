@@ -43,6 +43,18 @@ final class ExactDecimal
         return self::minor($value, 4) > 0;
     }
 
+    /**
+     * The canonical Money presentation shape: an exact, normalized decimal string paired
+     * with an uppercase ISO 4217 currency code. Single source of truth for every context's
+     * money() presenter helper — never build this array ad hoc.
+     *
+     * @return array{amount:string,currency:string}
+     */
+    public static function money(string $amount, string $currency): array
+    {
+        return ['amount' => self::normalize($amount), 'currency' => strtoupper($currency)];
+    }
+
     public static function compare(string $left, string $right, int $scale = 4): int
     {
         return self::minor($left, $scale) <=> self::minor($right, $scale);
