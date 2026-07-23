@@ -112,6 +112,40 @@ final readonly class CreditTrancheLedger
     }
 
     /**
+     * Releases an untouched (fully-remaining) note-sourced hold to zero for a note
+     * reversal (API Contracts §12.2 hold-reversal rule): only valid while the hold has
+     * not yet been consumed by any application or refund. Locks and re-checks the
+     * tranche itself, so callers never need their own CreditTranche read/lock.
+     *
+     * @return array{credit_tranche_id:string,released:true}|array{error:array{code:string,message:string,status:int,details:array<string,mixed>}}
+     */
+    public function releaseHold(string $entityId, string $trancheId): array
+    {
+        $tranche = CreditTranche::query()->where('entity_id', $entityId)->whereKey($trancheId)->lockForUpdate()->first();
+        if ($tranche === null || $tranche->remaining_amount !== $tranche->original_amount) {
+            return ['error' => ['code' => 'invariant_violation', 'message' => 'Held credit was subsequently consumed and cannot be reversed.', 'status' => 422, 'details' => ['rule' => 'note_reversal_blocked_by_downstream_activity']]];
+        }
+        $updated = CreditTranche::query()->whereKey($tranche->id)->where('version', $tranche->version)
+            ->update(['remaining_amount' => '0.0000', 'remaining_functional_amount' => '0.0000', 'version' => $tranche->version + 1, 'updated_at' => now('UTC')]);
+        if ($updated !== 1) {
+            return ['error' => ['code' => 'credit_tranche_concurrency_conflict', 'message' => 'Credit tranche version is stale.', 'status' => 409, 'details' => []]];
+        }
+
+        return ['credit_tranche_id' => $tranche->id, 'released' => true];
+    }
+
+    /**
+     * Entity-scoped, unlocked lookup of a tranche by id — the AP-001 read path for
+     * Receivables/Payables to validate a caller-supplied credit source before calling
+     * consume()/restore(). Never a lock; callers that mutate go through consume()/
+     * restore()/releaseHold(), which take their own lock.
+     */
+    public function findById(string $entityId, string $trancheId): ?CreditTranche
+    {
+        return CreditTranche::query()->where('entity_id', $entityId)->find($trancheId);
+    }
+
+    /**
      * Restores exact consumption facts for a note reversal, appending one restoration per
      * original consumption and restoring its recorded transaction/functional values to the
      * same source tranche without recalculation (API Contracts §12.2).

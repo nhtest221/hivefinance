@@ -177,6 +177,64 @@ it('reverses a posted credit note with no disposition, restoring it to draft-equ
         ->assertUnprocessable()->assertJsonPath('details.rule', 'note_reversed');
 });
 
+it('releases an untouched held tranche back to zero when the credit note is reversed', function (): void {
+    [$entity, $maker, $checker, $sourceInvoice] = m4aDispositionFixture();
+    Sanctum::actingAs($maker);
+    $created = $this->postJson('/v1/credit-notes', [
+        'party_type' => 'customer', 'document_type' => 'invoice', 'party_id' => $sourceInvoice->customer_id,
+        'source_document_id' => $sourceInvoice->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
+        'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $sourceInvoice->lines->first()->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('credit_note');
+    Sanctum::actingAs($checker);
+    $posted = $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('credit_note');
+
+    Sanctum::actingAs($maker);
+    $held = $this->postJson('/v1/credit-notes/'.$posted['id'].'/hold', ['hold_date' => '2026-07-22', 'amount' => ['amount' => '100.0000', 'currency' => 'BDT']], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
+        ->assertCreated()->json();
+    $trancheId = $held['credit_sources'][0]['credit_tranche_id'];
+    expect(CreditTranche::query()->whereKey($trancheId)->value('remaining_amount'))->toBe('100.0000');
+
+    $reversed = $this->postJson('/v1/credit-notes/'.$posted['id'].'/reverse', [
+        'reversal_date' => '2026-07-23', 'reason_code' => 'CONFIGURED_REASON', 'narrative' => 'Issued in error',
+        'document_versions' => [], 'credit_source_versions' => [],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '3'])
+        ->assertCreated()->assertJsonPath('credit_note.state', 'reversed')->json();
+
+    expect($reversed['credit_note']['state'])->toBe('reversed')
+        ->and(CreditTranche::query()->whereKey($trancheId)->value('remaining_amount'))->toBe('0.0000')
+        ->and(CreditTranche::query()->whereKey($trancheId)->value('version'))->toBe(2);
+});
+
+it('blocks reversal when a held tranche was already consumed by a downstream apply', function (): void {
+    [$entity, $maker, $checker, $sourceInvoice, $targetInvoice] = m4aDispositionFixture();
+    Sanctum::actingAs($maker);
+    $created = $this->postJson('/v1/credit-notes', [
+        'party_type' => 'customer', 'document_type' => 'invoice', 'party_id' => $sourceInvoice->customer_id,
+        'source_document_id' => $sourceInvoice->id, 'source_document_expected_version' => 1, 'note_date' => '2026-07-21',
+        'reason_code' => 'CONFIGURED_REASON', 'lines' => [['source_line_id' => $sourceInvoice->lines->first()->id, 'net_amount' => ['amount' => '100.0000', 'currency' => 'BDT']]],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid()])->assertCreated()->json('credit_note');
+    Sanctum::actingAs($checker);
+    $posted = $this->postJson('/v1/credit-notes/'.$created['id'].'/post', [], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '1'])->assertCreated()->json('credit_note');
+
+    Sanctum::actingAs($maker);
+    $held = $this->postJson('/v1/credit-notes/'.$posted['id'].'/hold', ['hold_date' => '2026-07-22', 'amount' => ['amount' => '100.0000', 'currency' => 'BDT']], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'])
+        ->assertCreated()->json();
+    $trancheId = $held['credit_sources'][0]['credit_tranche_id'];
+    $tranche = CreditTranche::query()->whereKey($trancheId)->firstOrFail();
+
+    $this->postJson('/v1/credit-notes/'.$posted['id'].'/apply', [
+        'application_date' => '2026-07-23', 'source' => 'held',
+        'allocations' => [['document_id' => $targetInvoice->id, 'amount' => ['amount' => '30.0000', 'currency' => 'BDT'], 'expected_version' => 1]],
+        'credit_sources' => [['credit_tranche_id' => $trancheId, 'amount' => ['amount' => '30.0000', 'currency' => 'BDT'], 'expected_version' => $tranche->version]],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '3'])->assertCreated();
+
+    $this->postJson('/v1/credit-notes/'.$posted['id'].'/reverse', [
+        'reversal_date' => '2026-07-24', 'reason_code' => 'CONFIGURED_REASON', 'narrative' => 'Issued in error',
+        'document_versions' => [], 'credit_source_versions' => [],
+    ], ['X-Entity-Id' => $entity->id, 'Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '4'])
+        ->assertUnprocessable()->assertJsonPath('details.rule', 'note_reversal_blocked_by_downstream_activity');
+});
+
 it('mirrors hold, apply, and refund for debit notes with vendor/bill direction and AP debited on apply', function (): void {
     $entity = Entity::query()->create(['legal_name' => 'M4A Debit Disposition '.Str::uuid(), 'functional_currency' => 'BDT']);
     $maker = User::query()->create(['name' => 'Maker', 'email' => 'm4a-dn-disp-'.Str::uuid().'@test.local', 'password' => 'secret-password', 'status' => 'active', 'active_entity_id' => $entity->id]);

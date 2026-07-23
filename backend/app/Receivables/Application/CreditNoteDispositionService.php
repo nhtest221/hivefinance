@@ -422,12 +422,11 @@ final readonly class CreditNoteDispositionService
                     $allJournalIds[] = $reversedJournal->journalId;
                 } elseif ($disposition->operation === 'hold') {
                     foreach (($disposition->credit_tranche_ids ?? []) as $trancheId) {
-                        $tranche = CreditTranche::query()->where('entity_id', $entityId)->whereKey($trancheId)->lockForUpdate()->first();
-                        if ($tranche === null || $tranche->remaining_amount !== $tranche->original_amount) {
-                            return $this->commands->error('invariant_violation', 'Held credit was subsequently consumed and cannot be reversed.', 422, ['rule' => 'note_reversal_blocked_by_downstream_activity']);
+                        $released = $this->tranches->releaseHold($entityId, $trancheId);
+                        if (isset($released['error'])) {
+                            return $this->commands->error($released['error']['code'], $released['error']['message'], $released['error']['status'], $released['error']['details']);
                         }
-                        CreditTranche::query()->whereKey($tranche->id)->where('version', $tranche->version)->update(['remaining_amount' => '0.0000', 'remaining_functional_amount' => '0.0000', 'version' => $tranche->version + 1, 'updated_at' => now('UTC')]);
-                        $restoredTranches[] = ['credit_tranche_id' => $tranche->id, 'released' => true];
+                        $restoredTranches[] = $released;
                     }
                 }
             }
@@ -464,7 +463,7 @@ final readonly class CreditNoteDispositionService
         }
         $sources = [];
         foreach ($requested as $source) {
-            $tranche = CreditTranche::query()->where('entity_id', $entityId)->find($source['credit_tranche_id']);
+            $tranche = $this->tranches->findById($entityId, $source['credit_tranche_id']);
             if ($tranche === null) {
                 return $this->commands->error('credit_tranche_not_found', 'A selected credit source was not found.', 404);
             }
