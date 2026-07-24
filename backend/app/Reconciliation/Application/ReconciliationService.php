@@ -627,7 +627,11 @@ final readonly class ReconciliationService
         foreach ($lines as $line) {
             $pool = $candidates->reject(fn (Allocation $a): bool => in_array($a->id, $usedAllocationIds, true))
                 ->filter(fn (Allocation $a): bool => abs($a->settlement_date->diffInDays($line->transaction_date, false)) <= 3);
-            $group = $this->findExactCombination($pool->all(), $line->amount, $maxSize);
+            // combinationsOfSize() indexes with range(0, $size-1) against a plain array —
+            // reject()/filter() preserve original (non-sequential) integer keys, so this
+            // must be reindexed or combinationsOfSize() reads a nonexistent $items[0] as
+            // soon as any earlier candidate has already been filtered/rejected out.
+            $group = $this->findExactCombination($pool->values()->all(), $line->amount, $maxSize);
             if ($group === null) {
                 continue;
             }
@@ -645,7 +649,8 @@ final readonly class ReconciliationService
         $remaining = $candidates->reject(fn (Allocation $a): bool => in_array($a->id, $usedAllocationIds, true))->values();
         $unmatchedLines = $lines->reject(fn (ReconciliationStatementLine $l): bool => $result->has($l->id))->values();
         foreach ($remaining as $allocation) {
-            $pool = $unmatchedLines->filter(fn (ReconciliationStatementLine $l): bool => ! $result->has($l->id) && abs($allocation->settlement_date->diffInDays($l->transaction_date, false)) <= 3)->all();
+            // Same reindexing requirement as above — filter() alone does not renumber keys.
+            $pool = $unmatchedLines->filter(fn (ReconciliationStatementLine $l): bool => ! $result->has($l->id) && abs($allocation->settlement_date->diffInDays($l->transaction_date, false)) <= 3)->values()->all();
             $lineGroup = $this->findExactLineCombination($pool, $allocation->bank_amount, $maxSize);
             if ($lineGroup === null) {
                 continue;

@@ -10,6 +10,10 @@ use App\Models\Ledger\LedgerAccount;
 use App\Models\Payables\Bill;
 use App\Models\Period\AccountingPeriod;
 use App\Models\Receivables\Invoice;
+use App\Models\Reporting\AccountClassificationVersion;
+use App\Models\Reporting\AgeingBucketSetVersion;
+use App\Models\Reporting\CashViewPolicyVersion;
+use App\Models\Reporting\ReportLayoutVersion;
 use App\Models\Tax\TaxCode;
 use App\Models\Tax\TaxCodeVersion;
 use App\Models\Tax\TaxPack;
@@ -110,22 +114,39 @@ final class M2UatSeeder extends Seeder
         $checker = $this->user(self::CHECKER_ID, 'M2 UAT Finance Approver', 'checker.m2.uat@hivefinance.local');
         $auditor = $this->user(self::AUDITOR_ID, 'M2 UAT Auditor', 'auditor.m2.uat@hivefinance.local');
         $makerRole = $this->role('50000000-0000-4000-8000-000000000001', $entity, 'M2 UAT Finance Preparer', 'finance-staff', [
-            'receivables.customers.manage', 'receivables.customers.read', 'receivables.invoices.create', 'receivables.invoices.issue', 'receivables.invoices.read',
-            'payables.vendors.manage', 'payables.vendors.read', 'payables.bills.create', 'payables.bills.approve', 'payables.bills.read', 'payables.expenses.create', 'payables.expenses.read',
+            'receivables.customers.manage', 'receivables.customers.read', 'receivables.invoices.create', 'receivables.invoices.issue', 'receivables.invoices.read', 'receivables.invoices.void',
+            'payables.vendors.manage', 'payables.vendors.read', 'payables.bills.create', 'payables.bills.approve', 'payables.bills.read', 'payables.bills.void', 'payables.expenses.create', 'payables.expenses.read',
             'ledger.accounts.read', 'ledger.journals.read', 'ledger.reports.read', 'periods.read', 'tax.codes.read', 'fx.rates.read',
             'settlement.receipts.create', 'settlement.payments.create', 'settlement.allocations.read', 'settlement.allocations.reverse', 'settlement.credits.read', 'settlement.credits.apply', 'settlement.credits.refund',
             'receivables.credit_notes.read', 'receivables.credit_notes.create', 'receivables.credit_notes.post', 'receivables.credit_notes.hold', 'receivables.credit_notes.apply', 'receivables.credit_notes.refund', 'receivables.credit_notes.reverse',
             'payables.debit_notes.read', 'payables.debit_notes.create', 'payables.debit_notes.post', 'payables.debit_notes.hold', 'payables.debit_notes.apply', 'payables.debit_notes.refund', 'payables.debit_notes.reverse',
             'reconciliation.accounts.read', 'reconciliation.accounts.configure',
             'reconciliation.reconciliations.read', 'reconciliation.reconciliations.open', 'reconciliation.reconciliations.import', 'reconciliation.reconciliations.generate_suggestions', 'reconciliation.reconciliations.match', 'reconciliation.reconciliations.confirm', 'reconciliation.reconciliations.create_bank_entry', 'reconciliation.reconciliations.complete', 'reconciliation.reconciliations.reopen',
+            // Periods, Tax, FX, and Reporting UAT scope (2026-07 gap-closure pass).
+            'periods.soft_close', 'periods.hard_close', 'periods.reopen',
+            'tax.codes.manage', 'fx.rates.manage',
+            'reporting.report_runs.generate', 'reporting.report_runs.approve', 'reporting.report_runs.read',
+            'reporting.ar_ageing.read', 'reporting.ap_ageing.read', 'reporting.profit_and_loss.read', 'reporting.balance_sheet.read', 'reporting.tax_summary.read', 'reporting.fx_revaluation.read', 'reporting.cash_view.read',
+            // UAT-only: lets the Maker complete an approval a distinct actor (the Checker) submitted,
+            // e.g. the ReportRun-approve action is itself approval-gated (report_run_approve), so a
+            // *third* distinct actor is needed to complete it. Self-approval remains blocked
+            // (ApprovalRequest.maker_id !== approver check) regardless of this grant. Never a
+            // production default — see the class-level UAT-only warning.
+            'identity.approvals.approve',
         ]);
         $checkerRole = $this->role('50000000-0000-4000-8000-000000000002', $entity, 'M2 UAT Finance Approver', 'accountant', [
-            'identity.approvals.approve', 'payables.bills.approve', 'payables.bills.read', 'payables.vendors.read', 'payables.expenses.read',
-            'receivables.customers.read', 'receivables.invoices.read', 'ledger.accounts.read', 'ledger.journals.read', 'ledger.reports.read', 'periods.read', 'tax.codes.read', 'fx.rates.read',
+            'identity.approvals.approve', 'payables.bills.approve', 'payables.bills.read', 'payables.bills.void', 'payables.vendors.read', 'payables.expenses.read',
+            'receivables.customers.read', 'receivables.invoices.read', 'receivables.invoices.void', 'ledger.accounts.read', 'ledger.journals.read', 'ledger.reports.read', 'periods.read', 'tax.codes.read', 'fx.rates.read',
             // approve() additionally requires the checker to hold the exact gated capability of whatever they are approving (ApprovalLifecycleService::canApprove), not just identity.approvals.approve.
             'settlement.receipts.create', 'settlement.payments.create', 'settlement.allocations.read', 'settlement.credits.read',
             'receivables.credit_notes.read', 'receivables.credit_notes.post', 'payables.debit_notes.read', 'payables.debit_notes.post',
             'reconciliation.accounts.read', 'reconciliation.reconciliations.read',
+            'reconciliation.reconciliations.create_bank_entry', 'reconciliation.reconciliations.complete', 'reconciliation.reconciliations.reopen',
+            // Periods, Tax, FX, and Reporting UAT scope (2026-07 gap-closure pass).
+            'periods.soft_close', 'periods.hard_close', 'periods.reopen',
+            'tax.codes.manage', 'fx.rates.manage',
+            'reporting.report_runs.approve', 'reporting.report_runs.read',
+            'reporting.ar_ageing.read', 'reporting.ap_ageing.read', 'reporting.profit_and_loss.read', 'reporting.balance_sheet.read', 'reporting.tax_summary.read', 'reporting.fx_revaluation.read', 'reporting.cash_view.read',
         ]);
         $auditorRole = $this->role('50000000-0000-4000-8000-000000000003', $entity, 'M2 UAT Read-only Auditor', 'auditor', [
             'receivables.customers.read', 'receivables.invoices.read', 'payables.vendors.read', 'payables.bills.read', 'payables.expenses.read',
@@ -180,6 +201,8 @@ final class M2UatSeeder extends Seeder
         $expenses = app(ExpenseService::class);
         $this->expect($expenses->create($maker, $entity->id, ['expense_date' => '2026-07-18', 'description' => 'UAT office supplies', 'category_account_id' => self::EXPENSE_ACCOUNT, 'settlement_type' => 'cash', 'bank_account_id' => self::BANK_ACCOUNT, 'currency' => 'BDT', 'amount' => ['amount' => '120.0000', 'currency' => 'BDT'], 'tax_code_id' => null, 'ait' => null, 'sbu_allocations' => [['sbu_code' => 'OPS', 'weight' => '1.0000']]], '80000000-0000-4000-8000-000000000041'));
 
+        $this->seedReportingConfiguration($entity);
+
         $this->seedNotesSettlementAndReconciliation($entity, $maker, $checker, $domesticCustomer['id'], $domesticInvoice['id'], $primaryVendor['id'], $approvedBill['id']);
 
         $this->command?->newLine();
@@ -204,6 +227,7 @@ final class M2UatSeeder extends Seeder
         config()->set('documents.expense.payable_account_id', self::AP_ACCOUNT);
         config()->set('valuation.tax.exclusive_methods', ['exclusive']);
         config()->set('valuation.tax.inclusive_methods', []);
+        config()->set('valuation.tax.jurisdictions', ['BD']);
         config()->set('valuation.fx.sources', ['uat_manual']);
         config()->set('valuation.fx.source_precedence', ['uat_manual']);
         config()->set('valuation.fx.rounding_mode', 'half_up');
@@ -304,6 +328,18 @@ final class M2UatSeeder extends Seeder
             'rate_record_id' => null, 'withholding_lines' => [], 'allocations' => [], 'party_credit_expected_version' => 0,
         ], '80000000-0000-4000-8000-000000000069'), '80000000-0000-4000-8000-00000000006a', '70000000-0000-4000-8000-00000000006a');
 
+        // A second, smaller advance receipt (distinct from the one above) so the
+        // reconciliation UAT scenario has four independent bank-account allocations to
+        // work with — enough to demonstrate one-to-one, one-to-many, and many-to-one
+        // statement-line matching simultaneously without any allocation being reused
+        // across patterns.
+        $this->approveIfPending($approvals, $checker, $entity->id, $settlement->receipt($maker, $entity->id, [
+            'customer_id' => $domesticCustomerId, 'settlement_date' => '2026-07-23', 'bank_account_id' => self::BANK_ACCOUNT,
+            'gross_amount' => ['amount' => '300.0000', 'currency' => 'BDT'], 'bank_amount' => ['amount' => '300.0000', 'currency' => 'BDT'],
+            'withholding_amount' => ['amount' => '0.0000', 'currency' => 'BDT'], 'unapplied_amount' => ['amount' => '300.0000', 'currency' => 'BDT'],
+            'rate_record_id' => null, 'withholding_lines' => [], 'allocations' => [], 'party_credit_expected_version' => 1,
+        ], '80000000-0000-4000-8000-00000000006e'), '80000000-0000-4000-8000-00000000006f', '70000000-0000-4000-8000-00000000006f');
+
         $bill->refresh();
         $this->approveIfPending($approvals, $checker, $entity->id, $settlement->payment($maker, $entity->id, [
             'vendor_id' => $primaryVendorId, 'settlement_date' => '2026-07-22', 'bank_account_id' => self::BANK_ACCOUNT,
@@ -317,6 +353,44 @@ final class M2UatSeeder extends Seeder
             'ledger_account_id' => self::BANK_ACCOUNT, 'currency' => 'BDT', 'display_name' => 'UAT Operating Bank Reconciliation',
             'masked_bank_identifier' => '****4821',
         ], '80000000-0000-4000-8000-00000000006d'));
+    }
+
+    /** M5 Reporting requires its own versioned, entity-scoped configuration (report
+     * layout, account classification map, ageing bucket set, Cash View policy) before
+     * Profit and Loss, Balance Sheet, AR/AP Ageing, or Cash View will generate — these
+     * are not Laravel config() values like the rest of this seeder's illustrative
+     * policy, but real rows in report_layout_versions/account_classification_versions/
+     * ageing_bucket_set_versions/cash_view_policy_versions. The classification map is
+     * a direct, non-judgmental restatement of each seeded account's own `type` column
+     * (asset/liability/revenue/expense), not an invented accounting policy. */
+    private function seedReportingConfiguration(Entity $entity): void
+    {
+        ReportLayoutVersion::query()->create(['entity_id' => $entity->id, 'report_type' => 'profit_and_loss', 'version_number' => 1, 'sections' => [], 'effective_from' => '2026-01-01', 'effective_to' => null]);
+        ReportLayoutVersion::query()->create(['entity_id' => $entity->id, 'report_type' => 'balance_sheet', 'version_number' => 1, 'sections' => [], 'effective_from' => '2026-01-01', 'effective_to' => null]);
+
+        AccountClassificationVersion::query()->create(['entity_id' => $entity->id, 'version_number' => 1, 'effective_from' => '2026-01-01', 'effective_to' => null, 'entries' => [
+            ['account_id' => self::AR_ACCOUNT, 'code' => '1100', 'classification' => 'asset_current'],
+            ['account_id' => self::BANK_ACCOUNT, 'code' => '1200', 'classification' => 'asset_current'],
+            ['account_id' => self::INPUT_TAX_ACCOUNT, 'code' => '1300', 'classification' => 'asset_current'],
+            ['account_id' => self::VENDOR_CREDIT_ACCOUNT, 'code' => '1150', 'classification' => 'asset_current'],
+            ['account_id' => self::AP_ACCOUNT, 'code' => '2100', 'classification' => 'liability_current'],
+            ['account_id' => self::OUTPUT_TAX_ACCOUNT, 'code' => '2200', 'classification' => 'liability_current'],
+            ['account_id' => self::CUSTOMER_CREDIT_ACCOUNT, 'code' => '2110', 'classification' => 'liability_current'],
+            ['account_id' => self::REVENUE_ACCOUNT, 'code' => '4100', 'classification' => 'sales_revenue'],
+            ['account_id' => self::EXPENSE_ACCOUNT, 'code' => '5100', 'classification' => 'operating_expense'],
+            ['account_id' => self::FX_GAIN_ACCOUNT, 'code' => '4200', 'classification' => 'non_operating_income'],
+            ['account_id' => self::FX_LOSS_ACCOUNT, 'code' => '5200', 'classification' => 'non_operating_expense'],
+        ]]);
+
+        AgeingBucketSetVersion::query()->create(['entity_id' => $entity->id, 'version_number' => 1, 'effective_from' => '2026-01-01', 'effective_to' => null, 'buckets' => [
+            ['bucket_id' => 'not_due', 'label' => 'Not Due', 'lower_days' => null, 'upper_days' => -1, 'order' => 1],
+            ['bucket_id' => 'overdue_0_30', 'label' => '0-30', 'lower_days' => 0, 'upper_days' => 30, 'order' => 2],
+            ['bucket_id' => 'overdue_31_60', 'label' => '31-60', 'lower_days' => 31, 'upper_days' => 60, 'order' => 3],
+            ['bucket_id' => 'overdue_61_90', 'label' => '61-90', 'lower_days' => 61, 'upper_days' => 90, 'order' => 4],
+            ['bucket_id' => 'overdue_90_plus', 'label' => '91+', 'lower_days' => 91, 'upper_days' => null, 'order' => 5],
+        ]]);
+
+        CashViewPolicyVersion::query()->create(['entity_id' => $entity->id, 'version_number' => 1, 'effective_from' => '2026-01-01', 'effective_to' => null, 'policy' => ['recognition_date_source' => 'settlement_date']]);
     }
 
     /** Every command above runs against an entity with a non-empty approval_policy, so

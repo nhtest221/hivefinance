@@ -39,7 +39,7 @@ it('seeds the deterministic local M2 UAT release candidate with balanced posting
         ->and(Vendor::query()->where('status', 'active')->count())->toBe(2)
         ->and(Vendor::query()->where('status', 'deactivated')->count())->toBe(1)
         ->and(Expense::query()->count())->toBe(1)
-        ->and(ApprovalRequest::query()->where('status', 'approved')->count())->toBe(6)
+        ->and(ApprovalRequest::query()->where('status', 'approved')->count())->toBe(7)
         ->and(ApprovalRequest::query()->where('status', 'pending')->count())->toBe(1);
 
     expect(Invoice::query()->where('document_number', 'UAT-INV-2026-1')->value('total'))->toBe('1100.0000')
@@ -62,11 +62,11 @@ it('seeds the deterministic local M2 UAT release candidate with balanced posting
 
     expect(CreditNote::query()->where('state', 'posted')->count())->toBe(1)
         ->and(DebitNote::query()->where('state', 'posted')->count())->toBe(1)
-        ->and(Allocation::query()->where('state', 'posted')->count())->toBe(3)
-        ->and(PartyCreditBalance::query()->value('available_balance'))->toBe('200.0000')
+        ->and(Allocation::query()->where('state', 'posted')->count())->toBe(4)
+        ->and(PartyCreditBalance::query()->value('available_balance'))->toBe('500.0000')
         ->and(ReconciliationAccount::query()->count())->toBe(1);
 
-    $this->assertDatabaseCount('journal_entries', 9);
+    $this->assertDatabaseCount('journal_entries', 10);
     $this->assertDatabaseHas('outbox_messages', ['event_type' => 'InvoiceIssued']);
     $this->assertDatabaseHas('outbox_messages', ['event_type' => 'BillApproved']);
     $this->assertDatabaseHas('outbox_messages', ['event_type' => 'ExpenseRecorded']);

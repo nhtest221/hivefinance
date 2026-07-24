@@ -107,7 +107,12 @@ function ReportPreviewPanel() {
       if (sbu) filters.sbu = sbu
       if (customer) filters.customer = customer
       if (vendor) filters.vendor = vendor
-      if (basis && reportType === 'profit_and_loss') filters.basis = basis
+      // Only send a non-default basis: the backend already defaults to 'accrual' when
+      // omitted, and a ReportRun's `filters` column is exactly what CloseGateProvider
+      // matches against for the profit_and_loss_approved gate (an empty-filters lookup)
+      // — always sending 'accrual' explicitly would make every generated P&L run
+      // permanently ineligible to satisfy its own close gate.
+      if (basis === 'cash' && reportType === 'profit_and_loss') filters.basis = basis
       if (compareTo) filters.compare_to = compareTo
       if (reportType === 'general_ledger') { filters.account = account; filters.range = `${rangeFrom}..${rangeTo}` }
       const result = await reportRunsApi.generate({ report_type: reportType, period_ref: meta.dateMode === 'period' ? period : undefined, as_of: meta.dateMode === 'asOf' ? asOf : undefined, filters })
@@ -119,19 +124,19 @@ function ReportPreviewPanel() {
     {message ? <Alert>{message}</Alert> : null}
     <Card><CardContent className="space-y-3">
       <div className="grid gap-2 md:grid-cols-4">
-        <select className="rounded-md border p-2" value={reportType} onChange={(e) => { setReportType(e.target.value as ReportType); setPreview(null) }}>
+        <select aria-label="Report type" className="rounded-md border p-2" value={reportType} onChange={(e) => { setReportType(e.target.value as ReportType); setPreview(null) }}>
           {REPORT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         {meta.dateMode === 'asOf' ? <Input type="date" aria-label="As of" value={asOf} onChange={(e) => setAsOf(e.target.value)} /> : null}
-        {meta.dateMode === 'period' ? <Input placeholder="Period (e.g. 2026-07)" value={period} onChange={(e) => setPeriod(e.target.value)} /> : null}
-        {meta.dateMode === 'range' ? <><Input placeholder="Account UUID" value={account} onChange={(e) => setAccount(e.target.value)} /><Input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} /><Input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} /></> : null}
-        <Input placeholder="SBU (optional)" value={sbu} onChange={(e) => setSbu(e.target.value)} />
-        {reportType === 'ar_ageing' ? <Input placeholder="Customer UUID (optional)" value={customer} onChange={(e) => setCustomer(e.target.value)} /> : null}
-        {reportType === 'ap_ageing' ? <Input placeholder="Vendor UUID (optional)" value={vendor} onChange={(e) => setVendor(e.target.value)} /> : null}
-        {reportType === 'profit_and_loss' || reportType === 'balance_sheet' ? <Input placeholder="Compare to period/as-of (optional)" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} /> : null}
-        {reportType === 'profit_and_loss' ? <select className="rounded-md border p-2" value={basis} onChange={(e) => setBasis(e.target.value)}><option value="accrual">Accrual</option><option value="cash">Cash (excluded from M5 MVP)</option></select> : null}
+        {meta.dateMode === 'period' ? <Input aria-label="Period" placeholder="Period (e.g. FY2026-P01)" value={period} onChange={(e) => setPeriod(e.target.value)} /> : null}
+        {meta.dateMode === 'range' ? <><Input aria-label="Account UUID" placeholder="Account UUID" value={account} onChange={(e) => setAccount(e.target.value)} /><Input type="date" aria-label="Range from" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} /><Input type="date" aria-label="Range to" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} /></> : null}
+        <Input aria-label="SBU (optional)" placeholder="SBU (optional)" value={sbu} onChange={(e) => setSbu(e.target.value)} />
+        {reportType === 'ar_ageing' ? <Input aria-label="Customer UUID (optional)" placeholder="Customer UUID (optional)" value={customer} onChange={(e) => setCustomer(e.target.value)} /> : null}
+        {reportType === 'ap_ageing' ? <Input aria-label="Vendor UUID (optional)" placeholder="Vendor UUID (optional)" value={vendor} onChange={(e) => setVendor(e.target.value)} /> : null}
+        {reportType === 'profit_and_loss' || reportType === 'balance_sheet' ? <Input aria-label="Compare to (optional)" placeholder="Compare to period/as-of (optional)" value={compareTo} onChange={(e) => setCompareTo(e.target.value)} /> : null}
+        {reportType === 'profit_and_loss' ? <select aria-label="Reporting basis" className="rounded-md border p-2" value={basis} onChange={(e) => setBasis(e.target.value)}><option value="accrual">Accrual</option><option value="cash">Cash (excluded from M5 MVP)</option></select> : null}
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {canPreview ? <Button disabled={busy} variant="secondary" onClick={() => void loadPreview()}>Preview (not evidence)</Button> : null}
         {canGenerate ? <Button disabled={busy} onClick={() => void generate()}>Generate immutable ReportRun</Button> : null}
       </div>

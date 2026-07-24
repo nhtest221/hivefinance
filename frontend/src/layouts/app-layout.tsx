@@ -52,7 +52,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             <Select defaultValue="notionhive-bd">
-              <SelectTrigger className="h-8 w-44">
+              <SelectTrigger className="h-8 w-44" aria-label="Active entity">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

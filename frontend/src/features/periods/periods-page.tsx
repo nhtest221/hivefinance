@@ -20,6 +20,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Textarea,
 } from '@/design-system'
 import { AppLayout } from '@/layouts/app-layout'
 import { ApiRequestError } from '@/features/identity/auth-api'
@@ -251,6 +252,7 @@ function PeriodDetailView({ period }: { period: PeriodDetail }) {
 function ReopenAction({ period, onDone, onMessage }: { period: Period; onDone: () => Promise<void>; onMessage: (value: { tone: 'info' | 'error'; text: string }) => void }) {
   const [open, setOpen] = useState(false)
   const [reasonCode, setReasonCode] = useState('')
+  const [narrative, setNarrative] = useState('')
   const [vatUnlock, setVatUnlock] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -258,7 +260,7 @@ function ReopenAction({ period, onDone, onMessage }: { period: Period; onDone: (
     event.preventDefault()
     setSubmitting(true)
     try {
-      const result = await periodsApi.reopen(period, { reason_code: reasonCode, vat_unlock_requested: vatUnlock })
+      const result = await periodsApi.reopen(period, { reason_code: reasonCode, narrative, vat_unlock_requested: vatUnlock })
       onMessage({ tone: 'info', text: result.approval ? `Reopen always requires a second approver. Share approval id ${result.approval.id} with them on the Approvals page.` : 'Period reopened.' })
       setOpen(false)
       await onDone()
@@ -274,6 +276,7 @@ function ReopenAction({ period, onDone, onMessage }: { period: Period; onDone: (
   return (
     <form className="ml-auto flex flex-col items-end gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-subtle)] p-2" onSubmit={submit}>
       <Input placeholder="Configured reason code" value={reasonCode} onChange={(event) => { setReasonCode(event.target.value) }} required className="w-56" />
+      <Textarea placeholder="Narrative — why is this period being reopened?" value={narrative} onChange={(event) => { setNarrative(event.target.value) }} required className="w-56" />
       <label className="flex items-center gap-2 text-xs">
         <Checkbox checked={vatUnlock} onCheckedChange={(value) => { setVatUnlock(value === true) }} />
         Request VAT unlock
