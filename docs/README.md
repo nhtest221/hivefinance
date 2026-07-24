@@ -81,6 +81,23 @@ These documents are historical context only. They are not implementation sources
 - `HiveFin_SRS_Amendment_006.md`
 - `HiveFin_SRS_Amendment_007.md`
 
+## Operational and UAT Documents
+
+Not implementation sources of truth and not frozen — these are additive operational
+references that must not restate or reinterpret the frozen documents above:
+
+- `uat/HIVEFINANCE_FULL_UAT_RUNBOOK.md` — finance-user UAT walkthrough covering every
+  currently governed M0-M6 flow, seeded credentials, and known gaps.
+- `uat/M2_DOCUMENTS_UAT.md` — narrower, earlier M2-only UAT walkthrough; still valid for
+  its scope.
+- `ops/DEPLOYMENT_AND_OPERATIONS_RUNBOOK.md` — deployment topology, environment
+  configuration, queue/scheduler operation, monitoring, release checklist, rollback plan.
+- `ops/SECURITY_CHECKLIST.md` — authentication, MFA, CORS, rate-limiting status and gaps.
+- `ops/RELEASE_ROLLBACK_AND_BACKUP.md` — release/rollback pointer plus the backup/DR
+  governance gap.
+- `ops/DATA_MIGRATION_READINESS_ASSESSMENT.md` — status of the (unbuilt) Migration
+  context and what that means for onboarding a customer with historical data.
+
 ## Governance Notes
 
 - `HiveFin_Decision_Log.md` is the authoritative ADR register; individual ADR files are not required unless governance later chooses to split them.
