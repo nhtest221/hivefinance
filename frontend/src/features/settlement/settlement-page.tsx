@@ -1,7 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import { settlementApi, type Allocation, type CreditTranche } from './settlement-api'
-import { Alert, Button, Card, CardContent, Input, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@/design-system'
+import { Alert, Button, Card, CardContent, Input, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
 
 function parseArray(value: string, label: string): unknown[] {
@@ -34,8 +35,6 @@ export function SettlementPage() {
   }, [canRead])
   useEffect(() => { void load() }, [load])
 
-  if (!canRead) return <main className="p-6"><Alert>You do not have permission to view Settlement.</Alert></main>
-
   async function reverse(allocation: Allocation) {
     try {
       const result = await settlementApi.reverse(allocation)
@@ -44,15 +43,28 @@ export function SettlementPage() {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Reversal failed.') }
   }
 
-  return <main className="p-6"><div className="mx-auto max-w-6xl space-y-5">
-    <div><h1 className="text-2xl font-semibold">Settlement</h1><p className="text-sm text-[var(--color-text-muted)]">Receipts, payments, explicit party-credit tranches, and linked reversals.</p></div>
-    {message ? <Alert>{message}</Alert> : null}
-    <Tabs defaultValue="allocations"><TabsList><TabsTrigger value="allocations">Allocations</TabsTrigger><TabsTrigger value="cash">Receipts &amp; payments</TabsTrigger><TabsTrigger value="credits">Party credit</TabsTrigger></TabsList>
-      <TabsContent value="allocations"><Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Operation</TableHead><TableHead>Party</TableHead><TableHead>Gross</TableHead><TableHead>Applied</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{allocations.map((item) => <TableRow key={item.id}><TableCell>{item.allocation_number ?? item.id.slice(0, 8)}</TableCell><TableCell>{item.operation}</TableCell><TableCell>{item.party_type} · {item.party_id.slice(0, 8)}</TableCell><TableCell>{item.gross_amount.currency} {item.gross_amount.amount}</TableCell><TableCell>{item.allocated_amount.amount}</TableCell><TableCell>{item.state}</TableCell><TableCell>{canReverse && item.state === 'posted' && item.operation !== 'reversal' ? <Button variant="secondary" onClick={() => void reverse(item)}>Reverse</Button> : null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent>
-      <TabsContent value="cash"><div className="grid gap-4 lg:grid-cols-2">{canReceipt ? <CashForm kind="receipt" onDone={async (text) => { setMessage(text); await load() }} /> : <Alert>Receipt creation is not permitted.</Alert>}{canPayment ? <CashForm kind="payment" onDone={async (text) => { setMessage(text); await load() }} /> : <Alert>Payment creation is not permitted.</Alert>}</div></TabsContent>
-      <TabsContent value="credits">{canCredits ? <CreditPanel tranches={tranches} setTranches={setTranches} canApply={canApplyCredit} canRefund={canRefundCredit} onMessage={setMessage} onDone={load} /> : <Alert>Party-credit access is not permitted.</Alert>}</TabsContent>
-    </Tabs>
-  </div></main>
+  if (!canRead) {
+    return (
+      <AppLayout>
+        <PageHeader title="Settlement" description="Receipts, payments, explicit party-credit tranches, and linked reversals." />
+        <div className="p-4 lg:p-6"><Alert>You do not have permission to view Settlement.</Alert></div>
+      </AppLayout>
+    )
+  }
+
+  return (
+    <AppLayout>
+      <PageHeader title="Settlement" description="Receipts, payments, explicit party-credit tranches, and linked reversals." />
+      <div className="space-y-4 p-4 lg:p-6">
+        {message ? <Alert>{message}</Alert> : null}
+        <Tabs defaultValue="allocations"><TabsList><TabsTrigger value="allocations">Allocations</TabsTrigger><TabsTrigger value="cash">Receipts &amp; payments</TabsTrigger><TabsTrigger value="credits">Party credit</TabsTrigger></TabsList>
+          <TabsContent value="allocations"><Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Operation</TableHead><TableHead>Party</TableHead><TableHead>Gross</TableHead><TableHead>Applied</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{allocations.map((item) => <TableRow key={item.id}><TableCell>{item.allocation_number ?? item.id.slice(0, 8)}</TableCell><TableCell>{item.operation}</TableCell><TableCell>{item.party_type} · {item.party_id.slice(0, 8)}</TableCell><TableCell>{item.gross_amount.currency} {item.gross_amount.amount}</TableCell><TableCell>{item.allocated_amount.amount}</TableCell><TableCell>{item.state}</TableCell><TableCell>{canReverse && item.state === 'posted' && item.operation !== 'reversal' ? <Button variant="secondary" onClick={() => void reverse(item)}>Reverse</Button> : null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent>
+          <TabsContent value="cash"><div className="grid gap-4 lg:grid-cols-2">{canReceipt ? <CashForm kind="receipt" onDone={async (text) => { setMessage(text); await load() }} /> : <Alert>Receipt creation is not permitted.</Alert>}{canPayment ? <CashForm kind="payment" onDone={async (text) => { setMessage(text); await load() }} /> : <Alert>Payment creation is not permitted.</Alert>}</div></TabsContent>
+          <TabsContent value="credits">{canCredits ? <CreditPanel tranches={tranches} setTranches={setTranches} canApply={canApplyCredit} canRefund={canRefundCredit} onMessage={setMessage} onDone={load} /> : <Alert>Party-credit access is not permitted.</Alert>}</TabsContent>
+        </Tabs>
+      </div>
+    </AppLayout>
+  )
 }
 
 function CashForm({ kind, onDone }: { kind: 'receipt' | 'payment'; onDone: (message: string) => Promise<void> }) {

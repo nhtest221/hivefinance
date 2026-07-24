@@ -1,10 +1,501 @@
+import { Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, CardContent, CardHeader, Input, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  EmptyState,
+  ErrorState,
+  Input,
+  LoadingState,
+  PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Table,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
+} from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
+import { ApiRequestError } from '@/features/identity/auth-api'
 import { documentsApi, type Bill, type Expense, type Vendor } from './documents-api'
+import { listAccounts, type Account } from '@/features/ledger/ledger-api'
 
-export function PayablesPage(){const canRead=hasPermission('payables.vendors.read')||hasPermission('payables.bills.read')||hasPermission('payables.expenses.read');const canVendor=hasPermission('payables.vendors.manage');const canBill=hasPermission('payables.bills.create');const canApprove=hasPermission('payables.bills.approve');const canVoid=hasPermission('payables.bills.void');const canExpense=hasPermission('payables.expenses.create');const [vendors,setVendors]=useState<Vendor[]>([]);const [bills,setBills]=useState<Bill[]>([]);const [expenses,setExpenses]=useState<Expense[]>([]);const [message,setMessage]=useState<string|null>(null);const load=useCallback(async()=>{try{const [v,b,e]=await Promise.all([documentsApi.vendors(),documentsApi.bills(),documentsApi.expenses()]);setVendors(v.data.vendors);setBills(b.data.bills);setExpenses(e.data.expenses)}catch(error){setMessage(error instanceof Error?error.message:'Unable to load payables.')}},[]);useEffect(()=>{if(canRead)void load()},[canRead,load]);if(!canRead)return <main className="p-6"><Alert>You do not have permission to view payables.</Alert></main>;async function approve(bill:Bill){try{const result=await documentsApi.approveBill(bill);if(result.status===202&&result.data.approval){setMessage(`Approval ${result.data.approval.id} is pending. No bill posting has occurred.`)}else{setMessage('Bill approved and posted.');await load()}}catch(error){setMessage(error instanceof Error?error.message:'Bill approval failed.')}}async function editBill(bill:Bill){const notes=window.prompt('Replace draft notes (leave blank for none):','');if(notes===null)return;try{await documentsApi.updateBill(bill,{notes:notes||null});await load()}catch(error){setMessage(error instanceof Error?error.message:'Draft update failed.')}}async function voidBill(bill:Bill){const reasonCode=window.prompt('Configured void reason code:','');if(!reasonCode)return;const narrative=window.prompt('Void narrative:','');if(!narrative)return;try{const result=await documentsApi.voidBill(bill,{void_date:new Date().toISOString().slice(0,10),reason_code:reasonCode,narrative});setMessage(result.status===202&&result.data.approval?`Approval ${result.data.approval.id} is pending; the bill remains posted.`:'Bill voided.');await load()}catch(error){setMessage(error instanceof Error?error.message:'Void failed.')}}return <main className="p-6"><div className="mx-auto max-w-6xl space-y-5"><div><h1 className="text-2xl font-semibold">Payables</h1><p className="text-sm text-[var(--color-text-muted)]">Vendor masters, bill drafting and approval, and recorded expenses.</p></div>{message?<Alert>{message}</Alert>:null}<Tabs defaultValue="bills"><TabsList><TabsTrigger value="bills">Bills</TabsTrigger><TabsTrigger value="expenses">Expenses</TabsTrigger><TabsTrigger value="vendors">Vendors</TabsTrigger></TabsList><TabsContent value="bills" className="space-y-4">{canBill?<BillForm vendors={vendors} onDone={load} onError={setMessage}/>:null}<Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead>Total</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{bills.map(b=><TableRow key={b.id}><TableCell>{b.document_number??'Draft'}</TableCell><TableCell>{b.bill_date}</TableCell><TableCell>{b.status}</TableCell><TableCell>{b.total.currency} {b.total.amount}</TableCell><TableCell className="space-x-2">{b.status==='draft'&&canBill?<Button variant="secondary" onClick={()=>void editBill(b)}>Edit</Button>:null}{b.status==='draft'&&canApprove?<Button variant="secondary" onClick={()=>void approve(b)}>Approve</Button>:null}{(b.status==='draft'||b.status==='awaiting_payment')&&canVoid?<Button variant="danger" onClick={()=>void voidBill(b)}>Void</Button>:null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent><TabsContent value="expenses" className="space-y-4">{canExpense?<ExpenseForm vendors={vendors} onDone={load} onError={setMessage}/>:null}<Card><CardContent><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Settlement</TableHead><TableHead>Amount</TableHead></TableRow></TableHeader><tbody>{expenses.map(e=><TableRow key={e.id}><TableCell>{e.expense_date}</TableCell><TableCell>{e.description}</TableCell><TableCell>{e.settlement_type}</TableCell><TableCell>{e.amount.currency} {e.amount.amount}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent><TabsContent value="vendors" className="space-y-4">{canVendor?<VendorForm onDone={load} onError={setMessage}/>:null}<Card><CardContent><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Currency</TableHead><TableHead>Terms</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{vendors.map(v=><TableRow key={v.id}><TableCell>{v.name}</TableCell><TableCell>{v.default_currency}</TableCell><TableCell>{v.payment_terms}</TableCell><TableCell>{v.status}</TableCell><TableCell>{v.status==='active'&&canVendor?<Button variant="secondary" onClick={()=>void documentsApi.deactivateVendor(v).then(load).catch(e=>setMessage(e instanceof Error?e.message:'Deactivation failed'))}>Deactivate</Button>:null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent></Tabs></div></main>}
+const billStatusVariant: Record<Bill['status'], 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
+  draft: 'neutral',
+  awaiting_payment: 'info',
+  partially_paid: 'warning',
+  paid: 'success',
+  void: 'danger',
+}
 
-function VendorForm({onDone,onError}:{onDone:()=>Promise<void>;onError:(v:string|null)=>void}){const [name,setName]=useState('');const [currency,setCurrency]=useState('');const [terms,setTerms]=useState('');async function submit(e:FormEvent){e.preventDefault();try{await documentsApi.createVendor({name,default_currency:currency,payment_terms:terms});setName('');await onDone()}catch(error){onError(error instanceof Error?error.message:'Vendor creation failed.')}}return <Card><CardHeader><h2 className="font-semibold">Create vendor</h2></CardHeader><CardContent><form className="grid gap-3 md:grid-cols-4" onSubmit={submit}><Input placeholder="Name" value={name} onChange={e=>setName(e.target.value)} required/><Input placeholder="Currency" value={currency} onChange={e=>setCurrency(e.target.value.toUpperCase())} required/><Input placeholder="Configured terms key" value={terms} onChange={e=>setTerms(e.target.value)} required/><Button type="submit">Create</Button></form></CardContent></Card>}
-function BillForm({vendors,onDone,onError}:{vendors:Vendor[];onDone:()=>Promise<void>;onError:(v:string|null)=>void}){const [vendor,setVendor]=useState('');const [date,setDate]=useState('');const [description,setDescription]=useState('');const [amount,setAmount]=useState('');const [account,setAccount]=useState('');const [sbu,setSbu]=useState('');const selected=vendors.find(v=>v.id===vendor);async function submit(e:FormEvent){e.preventDefault();if(!selected)return;try{await documentsApi.createBill({vendor_id:vendor,bill_date:date,currency:selected.default_currency,lines:[{description,quantity:'1.0000',unit_price:{amount,currency:selected.default_currency},expense_account_id:account,tax_code_id:null}],sbu_allocations:[{sbu_code:sbu,weight:'1.0000'}]});setDescription('');setAmount('');await onDone()}catch(error){onError(error instanceof Error?error.message:'Bill creation failed.')}}return <Card><CardHeader><h2 className="font-semibold">Create bill draft</h2></CardHeader><CardContent><form className="grid gap-3 md:grid-cols-3" onSubmit={submit}><select className="rounded-md border p-2" value={vendor} onChange={e=>setVendor(e.target.value)} required><option value="">Vendor</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><Input type="date" value={date} onChange={e=>setDate(e.target.value)} required/><Input placeholder="Description" value={description} onChange={e=>setDescription(e.target.value)} required/><Input placeholder="Exact amount" value={amount} onChange={e=>setAmount(e.target.value)} required/><Input placeholder="Expense account UUID" value={account} onChange={e=>setAccount(e.target.value)} required/><Input placeholder="Configured SBU" value={sbu} onChange={e=>setSbu(e.target.value)} required/><Button type="submit">Save draft</Button></form></CardContent></Card>}
-function ExpenseForm({vendors,onDone,onError}:{vendors:Vendor[];onDone:()=>Promise<void>;onError:(v:string|null)=>void}){const [date,setDate]=useState('');const [description,setDescription]=useState('');const [amount,setAmount]=useState('');const [currency,setCurrency]=useState('');const [account,setAccount]=useState('');const [vendor,setVendor]=useState('');const [sbu,setSbu]=useState('');async function submit(e:FormEvent){e.preventDefault();try{await documentsApi.createExpense({expense_date:date,description,category_account_id:account,settlement_type:'accrued',vendor_id:vendor,currency,amount:{amount,currency},tax_code_id:null,ait:null,sbu_allocations:[{sbu_code:sbu,weight:'1.0000'}]});setDescription('');setAmount('');await onDone()}catch(error){onError(error instanceof Error?error.message:'Expense creation failed.')}}return <Card><CardHeader><h2 className="font-semibold">Record accrued expense</h2></CardHeader><CardContent><form className="grid gap-3 md:grid-cols-3" onSubmit={submit}><Input type="date" value={date} onChange={e=>setDate(e.target.value)} required/><select className="rounded-md border p-2" value={vendor} onChange={e=>setVendor(e.target.value)} required><option value="">Vendor</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><Input placeholder="Description" value={description} onChange={e=>setDescription(e.target.value)} required/><Input placeholder="Currency" value={currency} onChange={e=>setCurrency(e.target.value.toUpperCase())} required/><Input placeholder="Exact amount" value={amount} onChange={e=>setAmount(e.target.value)} required/><Input placeholder="Expense account UUID" value={account} onChange={e=>setAccount(e.target.value)} required/><Input placeholder="Configured SBU" value={sbu} onChange={e=>setSbu(e.target.value)} required/><Button type="submit">Record</Button></form></CardContent></Card>}
+export function PayablesPage() {
+  const canRead = hasPermission('payables.vendors.read') || hasPermission('payables.bills.read') || hasPermission('payables.expenses.read')
+  const canVendor = hasPermission('payables.vendors.manage')
+  const canBill = hasPermission('payables.bills.create')
+  const canApprove = hasPermission('payables.bills.approve')
+  const canVoid = hasPermission('payables.bills.void')
+  const canExpense = hasPermission('payables.expenses.create')
+
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [bills, setBills] = useState<Bill[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Bill | null>(null)
+  const [voiding, setVoiding] = useState<Bill | null>(null)
+
+  const load = useCallback(async () => {
+    if (!canRead) return
+    setLoading(true)
+    setError(null)
+    try {
+      const [v, b, e, a] = await Promise.all([documentsApi.vendors(), documentsApi.bills(), documentsApi.expenses(), listAccounts()])
+      setVendors(v.data.vendors)
+      setBills(b.data.bills)
+      setExpenses(e.data.expenses)
+      setAccounts(a.data.accounts)
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Unable to load payables.')
+    } finally {
+      setLoading(false)
+    }
+  }, [canRead])
+  useEffect(() => { void load() }, [load])
+
+  async function approve(bill: Bill) {
+    try {
+      const result = await documentsApi.approveBill(bill)
+      setMessage(result.status === 202 && result.data.approval ? `Approval ${result.data.approval.id} is pending. No bill posting has occurred.` : 'Bill approved and posted.')
+      await load()
+    } catch (err) {
+      setMessage(err instanceof ApiRequestError ? err.message : 'Bill approval failed.')
+    }
+  }
+
+  if (!canRead) {
+    return (
+      <AppLayout>
+        <PageHeader title="Payables" description="Vendor masters, bill drafting and approval, and recorded expenses." />
+        <div className="p-4 lg:p-6"><Alert>You do not have permission to view payables.</Alert></div>
+      </AppLayout>
+    )
+  }
+
+  return (
+    <AppLayout>
+      <PageHeader title="Payables" description="Vendor masters, bill drafting and approval, and recorded expenses." />
+      <div className="space-y-4 p-4 lg:p-6">
+        {message ? <Alert>{message}</Alert> : null}
+        {error ? <ErrorState description={error} /> : null}
+
+        <Tabs defaultValue="bills">
+          <TabsList>
+            <TabsTrigger value="bills">Bills</TabsTrigger>
+            <TabsTrigger value="expenses">Expenses</TabsTrigger>
+            <TabsTrigger value="vendors">Vendors</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="bills" className="space-y-4">
+            {canBill ? <BillForm vendors={vendors} accounts={accounts} onDone={load} onError={setMessage} /> : null}
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                {loading ? (
+                  <div className="p-6"><LoadingState label="Loading bills" /></div>
+                ) : bills.length === 0 ? (
+                  <div className="p-6"><EmptyState title="No bills yet" description="Draft your first bill using the form above." /></div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Number</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Open balance</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <tbody>
+                      {bills.map((bill) => (
+                        <TableRow key={bill.id}>
+                          <TableCell className="font-medium">{bill.document_number ?? 'Draft'}</TableCell>
+                          <TableCell className="text-[var(--color-text-muted)]">{bill.bill_date}</TableCell>
+                          <TableCell><Badge variant={billStatusVariant[bill.status]}>{bill.status.replace(/_/g, ' ')}</Badge></TableCell>
+                          <TableCell className="text-right tabular-nums">{bill.total.currency} {bill.total.amount}</TableCell>
+                          <TableCell className="text-right tabular-nums">{bill.open_balance.currency} {bill.open_balance.amount}</TableCell>
+                          <TableCell className="text-right space-x-2">
+                            {bill.status === 'draft' && canBill ? <Button variant="secondary" size="sm" onClick={() => { setEditing(bill) }}>Edit</Button> : null}
+                            {bill.status === 'draft' && canApprove ? <Button variant="secondary" size="sm" onClick={() => void approve(bill)}>Approve</Button> : null}
+                            {(bill.status === 'draft' || bill.status === 'awaiting_payment') && canVoid ? <Button variant="danger" size="sm" onClick={() => { setVoiding(bill) }}>Void</Button> : null}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="expenses" className="space-y-4">
+            {canExpense ? <ExpenseForm vendors={vendors} accounts={accounts} onDone={load} onError={setMessage} /> : null}
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                {loading ? (
+                  <div className="p-6"><LoadingState label="Loading expenses" /></div>
+                ) : expenses.length === 0 ? (
+                  <div className="p-6"><EmptyState title="No expenses recorded yet" description="Record your first expense using the form above." /></div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Settlement</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <tbody>
+                      {expenses.map((expense) => (
+                        <TableRow key={expense.id}>
+                          <TableCell className="text-[var(--color-text-muted)]">{expense.expense_date}</TableCell>
+                          <TableCell>{expense.description}</TableCell>
+                          <TableCell><Badge variant="neutral">{expense.settlement_type}</Badge></TableCell>
+                          <TableCell className="text-right tabular-nums">{expense.amount.currency} {expense.amount.amount}</TableCell>
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="vendors" className="space-y-4">
+            {canVendor ? <VendorForm onDone={load} onError={setMessage} /> : null}
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                {loading ? (
+                  <div className="p-6"><LoadingState label="Loading vendors" /></div>
+                ) : vendors.length === 0 ? (
+                  <div className="p-6"><EmptyState title="No vendors yet" description="Add your first vendor using the form above." /></div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Currency</TableHead>
+                        <TableHead>Terms</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <tbody>
+                      {vendors.map((vendor) => (
+                        <TableRow key={vendor.id}>
+                          <TableCell className="font-medium">{vendor.name}</TableCell>
+                          <TableCell>{vendor.default_currency}</TableCell>
+                          <TableCell className="text-[var(--color-text-muted)]">{vendor.payment_terms}</TableCell>
+                          <TableCell><Badge variant={vendor.status === 'active' ? 'success' : 'neutral'}>{vendor.status}</Badge></TableCell>
+                          <TableCell className="text-right">
+                            {vendor.status === 'active' && canVendor ? (
+                              <Button variant="secondary" size="sm" onClick={() => void documentsApi.deactivateVendor(vendor).then(load).catch((err: unknown) => { setMessage(err instanceof ApiRequestError ? err.message : 'Deactivation failed.') })}>
+                                Deactivate
+                              </Button>
+                            ) : null}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <EditBillDialog bill={editing} onClose={() => { setEditing(null) }} onDone={load} onError={setMessage} />
+      <VoidBillDialog bill={voiding} onClose={() => { setVoiding(null) }} onDone={load} onError={setMessage} />
+    </AppLayout>
+  )
+}
+
+function VendorForm({ onDone, onError }: { onDone: () => Promise<void>; onError: (v: string | null) => void }) {
+  const [name, setName] = useState('')
+  const [currency, setCurrency] = useState('')
+  const [terms, setTerms] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSubmitting(true)
+    try {
+      await documentsApi.createVendor({ name, default_currency: currency, payment_terms: terms })
+      setName('')
+      await onDone()
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Vendor creation failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><h2 className="font-semibold">Create vendor</h2></CardHeader>
+      <CardContent>
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
+          <Input placeholder="Name" value={name} onChange={(e) => { setName(e.target.value) }} required />
+          <Input placeholder="Currency (e.g. BDT)" value={currency} onChange={(e) => { setCurrency(e.target.value.toUpperCase()) }} maxLength={3} required />
+          <Input placeholder="Configured payment terms key" value={terms} onChange={(e) => { setTerms(e.target.value) }} required />
+          <Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create'}</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+type DraftLine = { description: string; quantity: string; unitPrice: string; accountId: string }
+const emptyLine = (): DraftLine => ({ description: '', quantity: '1.0000', unitPrice: '', accountId: '' })
+
+function BillForm({ vendors, accounts, onDone, onError }: { vendors: Vendor[]; accounts: Account[]; onDone: () => Promise<void>; onError: (v: string | null) => void }) {
+  const [vendorId, setVendorId] = useState('')
+  const [date, setDate] = useState('')
+  const [sbu, setSbu] = useState('')
+  const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
+  const [submitting, setSubmitting] = useState(false)
+  const selected = vendors.find((v) => v.id === vendorId)
+
+  function updateLine(index: number, patch: Partial<DraftLine>) {
+    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)))
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!selected) return
+    setSubmitting(true)
+    try {
+      await documentsApi.createBill({
+        vendor_id: vendorId,
+        bill_date: date,
+        currency: selected.default_currency,
+        lines: lines.map((line) => ({ description: line.description, quantity: line.quantity, unit_price: { amount: line.unitPrice, currency: selected.default_currency }, expense_account_id: line.accountId, tax_code_id: null })),
+        sbu_allocations: [{ sbu_code: sbu, weight: '1.0000' }],
+      })
+      setLines([emptyLine()])
+      await onDone()
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Bill creation failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><h2 className="font-semibold">Create bill draft</h2></CardHeader>
+      <CardContent>
+        <form className="space-y-3" onSubmit={submit}>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Select value={vendorId} onValueChange={setVendorId}>
+              <SelectTrigger><SelectValue placeholder="Vendor" /></SelectTrigger>
+              <SelectContent>
+                {vendors.map((vendor) => <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Input type="date" value={date} onChange={(e) => { setDate(e.target.value) }} required />
+            <Input placeholder="Configured SBU code" value={sbu} onChange={(e) => { setSbu(e.target.value) }} required />
+          </div>
+
+          <div className="space-y-2">
+            {lines.map((line, index) => (
+              <div className="grid grid-cols-[1fr_5rem_7rem_1fr_auto] gap-2" key={index}>
+                <Input placeholder="Description" value={line.description} onChange={(e) => { updateLine(index, { description: e.target.value }) }} required />
+                <Input placeholder="Qty" value={line.quantity} onChange={(e) => { updateLine(index, { quantity: e.target.value }) }} required />
+                <Input placeholder={`Price${selected ? ` (${selected.default_currency})` : ''}`} value={line.unitPrice} onChange={(e) => { updateLine(index, { unitPrice: e.target.value }) }} required />
+                <Select value={line.accountId} onValueChange={(value) => { updateLine(index, { accountId: value }) }}>
+                  <SelectTrigger><SelectValue placeholder="Expense account" /></SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.code} · {account.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="ghost" size="sm" disabled={lines.length === 1} onClick={() => { setLines((current) => current.filter((_, i) => i !== index)) }}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button type="button" variant="secondary" size="sm" onClick={() => { setLines((current) => [...current, emptyLine()]) }}>
+              <Plus className="size-4" /> Add line
+            </Button>
+          </div>
+
+          <Button type="submit" disabled={submitting || !selected}>{submitting ? 'Saving…' : 'Save draft'}</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ExpenseForm({ vendors, accounts, onDone, onError }: { vendors: Vendor[]; accounts: Account[]; onDone: () => Promise<void>; onError: (v: string | null) => void }) {
+  const [date, setDate] = useState('')
+  const [description, setDescription] = useState('')
+  const [amount, setAmount] = useState('')
+  const [currency, setCurrency] = useState('')
+  const [accountId, setAccountId] = useState('')
+  const [vendorId, setVendorId] = useState('')
+  const [sbu, setSbu] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSubmitting(true)
+    try {
+      await documentsApi.createExpense({ expense_date: date, description, category_account_id: accountId, settlement_type: 'accrued', vendor_id: vendorId, currency, amount: { amount, currency }, tax_code_id: null, ait: null, sbu_allocations: [{ sbu_code: sbu, weight: '1.0000' }] })
+      setDescription('')
+      setAmount('')
+      await onDone()
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Expense creation failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><h2 className="font-semibold">Record accrued expense</h2></CardHeader>
+      <CardContent>
+        <form className="grid gap-3 md:grid-cols-3" onSubmit={submit}>
+          <Input type="date" value={date} onChange={(e) => { setDate(e.target.value) }} required />
+          <Select value={vendorId} onValueChange={setVendorId}>
+            <SelectTrigger><SelectValue placeholder="Vendor" /></SelectTrigger>
+            <SelectContent>
+              {vendors.map((vendor) => <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Input placeholder="Description" value={description} onChange={(e) => { setDescription(e.target.value) }} required />
+          <Input placeholder="Currency (e.g. BDT)" value={currency} onChange={(e) => { setCurrency(e.target.value.toUpperCase()) }} maxLength={3} required />
+          <Input placeholder="Amount" value={amount} onChange={(e) => { setAmount(e.target.value) }} required />
+          <Select value={accountId} onValueChange={setAccountId}>
+            <SelectTrigger><SelectValue placeholder="Expense account" /></SelectTrigger>
+            <SelectContent>
+              {accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.code} · {account.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Input placeholder="Configured SBU code" value={sbu} onChange={(e) => { setSbu(e.target.value) }} required />
+          <Button type="submit" disabled={submitting}>{submitting ? 'Recording…' : 'Record'}</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+function EditBillDialog({ bill, onClose, onDone, onError }: { bill: Bill | null; onClose: () => void; onDone: () => Promise<void>; onError: (v: string | null) => void }) {
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => { setNotes('') }, [bill])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!bill) return
+    setSubmitting(true)
+    try {
+      await documentsApi.updateBill(bill, { notes: notes || null })
+      onClose()
+      await onDone()
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Draft update failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={bill !== null} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent>
+        <DialogTitle>Edit draft bill</DialogTitle>
+        <DialogDescription>Update the draft notes for {bill?.document_number ?? 'this bill'}.</DialogDescription>
+        <form className="mt-4 space-y-3" onSubmit={submit}>
+          <Textarea placeholder="Notes" value={notes} onChange={(e) => { setNotes(e.target.value) }} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function VoidBillDialog({ bill, onClose, onDone, onError }: { bill: Bill | null; onClose: () => void; onDone: () => Promise<void>; onError: (v: string | null) => void }) {
+  const [reasonCode, setReasonCode] = useState('')
+  const [narrative, setNarrative] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => { setReasonCode(''); setNarrative('') }, [bill])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!bill) return
+    setSubmitting(true)
+    try {
+      const result = await documentsApi.voidBill(bill, { void_date: new Date().toISOString().slice(0, 10), reason_code: reasonCode, narrative })
+      onError(result.status === 202 && result.data.approval ? `Approval ${result.data.approval.id} is pending; the bill remains posted.` : 'Bill voided.')
+      onClose()
+      await onDone()
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Void failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={bill !== null} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent>
+        <DialogTitle>Void bill</DialogTitle>
+        <DialogDescription>
+          This permanently voids {bill?.document_number ?? 'this bill'}
+          {bill?.status === 'awaiting_payment' ? ' and creates a reversing entry — it cannot be undone.' : '.'}
+        </DialogDescription>
+        <form className="mt-4 space-y-3" onSubmit={submit}>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium text-[var(--color-text)]">Reason code</span>
+            <Input placeholder="Configured reason code" value={reasonCode} onChange={(e) => { setReasonCode(e.target.value) }} required />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium text-[var(--color-text)]">Narrative</span>
+            <Textarea placeholder="Why is this being voided?" value={narrative} onChange={(e) => { setNarrative(e.target.value) }} required />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="danger" disabled={submitting}>{submitting ? 'Voiding…' : 'Void bill'}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

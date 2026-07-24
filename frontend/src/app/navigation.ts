@@ -2,6 +2,7 @@ import {
   Banknote,
   BarChart3,
   BookOpen,
+  CalendarClock,
   ClipboardList,
   CircleDollarSign,
   FileText,
@@ -10,6 +11,7 @@ import {
   Receipt,
   Repeat2,
   Settings,
+  ShieldCheck,
   StickyNote,
   WalletCards,
 } from 'lucide-react'
@@ -52,6 +54,13 @@ export const navigationGroups = [
   {
     label: 'Reporting',
     items: [{ label: 'Reports', path: '/reports', icon: BarChart3, shortcut: 'G X' }],
+  },
+  {
+    label: 'Approvals & Close',
+    items: [
+      { label: 'Approvals', path: '/approvals', icon: ShieldCheck, shortcut: 'G V' },
+      { label: 'Periods & Close', path: '/periods', icon: CalendarClock, shortcut: 'G L' },
+    ],
   },
   {
     label: 'Admin',

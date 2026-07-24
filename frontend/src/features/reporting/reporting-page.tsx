@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { periodsApi, reportRunsApi, reportsApi, type PeriodDetail, type PeriodSummary, type ReportRun, type ReportType } from './reporting-api'
-import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
 
 const REPORT_TYPES: Array<{ value: ReportType; label: string; dateMode: 'asOf' | 'period' | 'range'; permission: string }> = [
@@ -43,14 +44,23 @@ function JsonTable({ value }: { value: unknown }) {
 }
 
 export function ReportingPage() {
-  return <main className="p-6"><div className="mx-auto max-w-6xl space-y-5">
-    <div><h1 className="text-2xl font-semibold">Reporting</h1><p className="text-sm text-[var(--color-text-muted)]">Financial statements, ReportRun sign-off, export, and Hard Close gate status.</p></div>
-    <Tabs defaultValue="preview"><TabsList><TabsTrigger value="preview">Reports</TabsTrigger><TabsTrigger value="runs">ReportRuns</TabsTrigger><TabsTrigger value="gates">Close-Gate Status</TabsTrigger></TabsList>
-      <TabsContent value="preview" className="space-y-4"><ReportPreviewPanel /></TabsContent>
-      <TabsContent value="runs" className="space-y-4"><ReportRunsPanel /></TabsContent>
-      <TabsContent value="gates" className="space-y-4"><CloseGatePanel /></TabsContent>
-    </Tabs>
-  </div></main>
+  return (
+    <AppLayout>
+      <PageHeader title="Reporting" description="Financial statements, ReportRun sign-off, export, and Hard Close gate status." />
+      <div className="space-y-4 p-4 lg:p-6">
+        <Tabs defaultValue="preview">
+          <TabsList>
+            <TabsTrigger value="preview">Reports</TabsTrigger>
+            <TabsTrigger value="runs">ReportRuns</TabsTrigger>
+            <TabsTrigger value="gates">Close-Gate Status</TabsTrigger>
+          </TabsList>
+          <TabsContent value="preview" className="space-y-4"><ReportPreviewPanel /></TabsContent>
+          <TabsContent value="runs" className="space-y-4"><ReportRunsPanel /></TabsContent>
+          <TabsContent value="gates" className="space-y-4"><CloseGatePanel /></TabsContent>
+        </Tabs>
+      </div>
+    </AppLayout>
+  )
 }
 
 function ReportPreviewPanel() {

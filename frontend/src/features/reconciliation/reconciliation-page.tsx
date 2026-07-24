@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { approvalsApi, reconciliationAccountsApi, reconciliationsApi, type Approval, type BankReconciliation, type ReconciliationAccount, type StatementLine } from './reconciliation-api'
-import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
 
 function stateVariant(state: string): 'success' | 'warning' | 'danger' | 'neutral' {
@@ -20,13 +21,21 @@ function lineVariant(status: string): 'success' | 'warning' | 'danger' | 'neutra
 }
 
 export function ReconciliationPage() {
-  return <main className="p-6"><div className="mx-auto max-w-6xl space-y-5">
-    <div><h1 className="text-2xl font-semibold">Reconciliation</h1><p className="text-sm text-[var(--color-text-muted)]">Bank accounts, statement import, matching, bank-only entries, and Hard Close evidence.</p></div>
-    <Tabs defaultValue="reconciliations"><TabsList><TabsTrigger value="accounts">Bank Accounts</TabsTrigger><TabsTrigger value="reconciliations">Reconciliations</TabsTrigger></TabsList>
-      <TabsContent value="accounts" className="space-y-4"><AccountsPanel /></TabsContent>
-      <TabsContent value="reconciliations" className="space-y-4"><ReconciliationsPanel /></TabsContent>
-    </Tabs>
-  </div></main>
+  return (
+    <AppLayout>
+      <PageHeader title="Reconciliation" description="Bank accounts, statement import, matching, bank-only entries, and Hard Close evidence." />
+      <div className="space-y-4 p-4 lg:p-6">
+        <Tabs defaultValue="reconciliations">
+          <TabsList>
+            <TabsTrigger value="accounts">Bank Accounts</TabsTrigger>
+            <TabsTrigger value="reconciliations">Reconciliations</TabsTrigger>
+          </TabsList>
+          <TabsContent value="accounts" className="space-y-4"><AccountsPanel /></TabsContent>
+          <TabsContent value="reconciliations" className="space-y-4"><ReconciliationsPanel /></TabsContent>
+        </Tabs>
+      </div>
+    </AppLayout>
+  )
 }
 
 function AccountsPanel() {
