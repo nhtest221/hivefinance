@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import {
@@ -12,6 +12,9 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  DialogTitle as DrawerTitle,
+  Drawer,
+  DrawerContent,
   EmptyState,
   ErrorState,
   Input,
@@ -64,6 +67,7 @@ export function PayablesPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [editing, setEditing] = useState<Bill | null>(null)
   const [voiding, setVoiding] = useState<Bill | null>(null)
+  const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null)
 
   const load = useCallback(async () => {
     if (!canRead) return
@@ -82,6 +86,14 @@ export function PayablesPage() {
     }
   }, [canRead])
   useEffect(() => { void load() }, [load])
+
+  async function openVendor(vendor: Vendor) {
+    try {
+      setSelectedVendor((await documentsApi.vendor(vendor.id)).data.vendor)
+    } catch (err) {
+      setMessage(err instanceof ApiRequestError ? err.message : 'Unable to load vendor detail.')
+    }
+  }
 
   async function approve(bill: Bill) {
     try {
@@ -214,7 +226,12 @@ export function PayablesPage() {
                     <tbody>
                       {vendors.map((vendor) => (
                         <TableRow key={vendor.id}>
-                          <TableCell className="font-medium">{vendor.name}</TableCell>
+                          <TableCell className="font-medium">
+                            <button type="button" className="flex items-center gap-1 hover:underline" onClick={() => void openVendor(vendor)}>
+                              {vendor.name}
+                              <ChevronRight className="size-3.5 text-[var(--color-text-muted)]" />
+                            </button>
+                          </TableCell>
                           <TableCell>{vendor.default_currency}</TableCell>
                           <TableCell className="text-[var(--color-text-muted)]">{vendor.payment_terms}</TableCell>
                           <TableCell><Badge variant={vendor.status === 'active' ? 'success' : 'neutral'}>{vendor.status}</Badge></TableCell>
@@ -238,7 +255,132 @@ export function PayablesPage() {
 
       <EditBillDialog bill={editing} onClose={() => { setEditing(null) }} onDone={load} onError={setMessage} />
       <VoidBillDialog bill={voiding} onClose={() => { setVoiding(null) }} onDone={load} onError={setMessage} />
+
+      <Drawer open={selectedVendor !== null} onOpenChange={(open) => { if (!open) setSelectedVendor(null) }}>
+        <DrawerContent>
+          {selectedVendor ? (
+            <VendorDetailDrawer
+              vendor={selectedVendor}
+              bills={bills.filter((bill) => bill.vendor_id === selectedVendor.id)}
+              canManage={canVendor}
+              onUpdated={(updated) => { setSelectedVendor(updated); void load() }}
+              onError={setMessage}
+            />
+          ) : null}
+        </DrawerContent>
+      </Drawer>
     </AppLayout>
+  )
+}
+
+function VendorDetailDrawer({ vendor, bills, canManage, onUpdated, onError }: { vendor: Vendor; bills: Bill[]; canManage: boolean; onUpdated: (vendor: Vendor) => void; onError: (value: string | null) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(vendor.name)
+  const [currency, setCurrency] = useState(vendor.default_currency)
+  const [terms, setTerms] = useState(vendor.payment_terms)
+  const [jurisdiction, setJurisdiction] = useState(vendor.jurisdiction ?? '')
+  const [taxId, setTaxId] = useState(vendor.tax_identifier ?? '')
+  const [email, setEmail] = useState(vendor.contact?.email ?? '')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setEditing(false)
+    setName(vendor.name)
+    setCurrency(vendor.default_currency)
+    setTerms(vendor.payment_terms)
+    setJurisdiction(vendor.jurisdiction ?? '')
+    setTaxId(vendor.tax_identifier ?? '')
+    setEmail(vendor.contact?.email ?? '')
+  }, [vendor])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSubmitting(true)
+    try {
+      const updated = await documentsApi.updateVendor(vendor, {
+        name, default_currency: currency, payment_terms: terms,
+        jurisdiction: jurisdiction || null, tax_identifier: taxId || null,
+        contact: email ? { email, phone: vendor.contact?.phone ?? null } : null,
+      })
+      onUpdated(updated.data.vendor)
+      setEditing(false)
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Vendor update failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-4 overflow-y-auto">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <DrawerTitle className="text-lg font-semibold">{vendor.name}</DrawerTitle>
+          <div className="mt-2">
+            <Badge variant={vendor.status === 'active' ? 'success' : 'neutral'}>{vendor.status}</Badge>
+          </div>
+        </div>
+        {canManage && vendor.status === 'active' && !editing ? (
+          <Button variant="secondary" size="sm" onClick={() => { setEditing(true) }}>Edit</Button>
+        ) : null}
+      </div>
+
+      {editing ? (
+        <form className="space-y-3 rounded-md border border-[var(--color-border)] p-3" onSubmit={(event) => void submit(event)}>
+          <Input placeholder="Name" value={name} onChange={(event) => { setName(event.target.value) }} required />
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="Currency" value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()) }} maxLength={3} required />
+            <Input placeholder="Payment terms" value={terms} onChange={(event) => { setTerms(event.target.value) }} required />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="Jurisdiction (optional)" value={jurisdiction} onChange={(event) => { setJurisdiction(event.target.value) }} />
+            <Input placeholder="Tax identifier (optional)" value={taxId} onChange={(event) => { setTaxId(event.target.value) }} />
+          </div>
+          <Input placeholder="Contact email (optional)" value={email} onChange={(event) => { setEmail(event.target.value) }} />
+          <p className="text-xs text-[var(--color-text-muted)]">Bank details are not editable here; raw account identifiers are never returned by the API once saved.</p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => { setEditing(false) }}>Cancel</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </form>
+      ) : (
+        <dl className="grid grid-cols-2 gap-3 rounded-md border border-[var(--color-border)] p-3 text-sm">
+          <div><dt className="text-[var(--color-text-muted)]">Currency</dt><dd>{vendor.default_currency}</dd></div>
+          <div><dt className="text-[var(--color-text-muted)]">Payment terms</dt><dd>{vendor.payment_terms}</dd></div>
+          <div><dt className="text-[var(--color-text-muted)]">Jurisdiction</dt><dd>{vendor.jurisdiction ?? '—'}</dd></div>
+          <div><dt className="text-[var(--color-text-muted)]">Tax identifier</dt><dd>{vendor.tax_identifier ?? '—'}</dd></div>
+          <div className="col-span-2"><dt className="text-[var(--color-text-muted)]">Contact email</dt><dd>{vendor.contact?.email ?? '—'}</dd></div>
+          {vendor.bank_details ? (
+            <div className="col-span-2">
+              <dt className="text-[var(--color-text-muted)]">Bank details</dt>
+              <dd>{vendor.bank_details.institution_name} · {vendor.bank_details.account_identifier_masked}</dd>
+            </div>
+          ) : null}
+        </dl>
+      )}
+
+      <section>
+        <h3 className="mb-2 text-sm font-semibold">Bills ({bills.length})</h3>
+        {bills.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">No bills for this vendor yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {bills.map((bill) => (
+              <li key={bill.id} className="flex items-center justify-between rounded-md border border-[var(--color-border)] p-2.5 text-sm">
+                <div>
+                  <p className="font-medium">{bill.document_number ?? 'Draft'}</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">{bill.bill_date}</p>
+                </div>
+                <div className="text-right">
+                  <Badge variant={billStatusVariant[bill.status]}>{bill.status.replace(/_/g, ' ')}</Badge>
+                  <p className="mt-1 text-xs tabular-nums text-[var(--color-text-muted)]">{bill.open_balance.currency} {bill.open_balance.amount} open</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   )
 }
 
