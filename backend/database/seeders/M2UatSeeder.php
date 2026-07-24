@@ -7,16 +7,22 @@ use App\Models\CurrencyFx\RateRecord;
 use App\Models\Identity\Entity;
 use App\Models\Identity\Role;
 use App\Models\Ledger\LedgerAccount;
+use App\Models\Payables\Bill;
 use App\Models\Period\AccountingPeriod;
+use App\Models\Receivables\Invoice;
 use App\Models\Tax\TaxCode;
 use App\Models\Tax\TaxCodeVersion;
 use App\Models\Tax\TaxPack;
 use App\Models\User;
 use App\Payables\Application\BillService;
+use App\Payables\Application\DebitNoteService;
 use App\Payables\Application\ExpenseService;
 use App\Payables\Application\VendorService;
+use App\Receivables\Application\CreditNoteService;
 use App\Receivables\Application\CustomerService;
 use App\Receivables\Application\InvoiceService;
+use App\Reconciliation\Application\ReconciliationAccountService;
+use App\Settlement\Application\SettlementService;
 use App\Support\Documents\DocumentActionResult;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Seeder;
@@ -51,6 +57,14 @@ final class M2UatSeeder extends Seeder
     private const string REVENUE_ACCOUNT = '20000000-0000-4000-8000-000000000006';
 
     private const string EXPENSE_ACCOUNT = '20000000-0000-4000-8000-000000000007';
+
+    private const string CUSTOMER_CREDIT_ACCOUNT = '20000000-0000-4000-8000-000000000008';
+
+    private const string VENDOR_CREDIT_ACCOUNT = '20000000-0000-4000-8000-000000000009';
+
+    private const string FX_GAIN_ACCOUNT = '20000000-0000-4000-8000-00000000000a';
+
+    private const string FX_LOSS_ACCOUNT = '20000000-0000-4000-8000-00000000000b';
 
     private const string TAX_CODE_ID = '30000000-0000-4000-8000-000000000001';
 
@@ -99,14 +113,24 @@ final class M2UatSeeder extends Seeder
             'receivables.customers.manage', 'receivables.customers.read', 'receivables.invoices.create', 'receivables.invoices.issue', 'receivables.invoices.read',
             'payables.vendors.manage', 'payables.vendors.read', 'payables.bills.create', 'payables.bills.approve', 'payables.bills.read', 'payables.expenses.create', 'payables.expenses.read',
             'ledger.accounts.read', 'ledger.journals.read', 'ledger.reports.read', 'periods.read', 'tax.codes.read', 'fx.rates.read',
+            'settlement.receipts.create', 'settlement.payments.create', 'settlement.allocations.read', 'settlement.allocations.reverse', 'settlement.credits.read', 'settlement.credits.apply', 'settlement.credits.refund',
+            'receivables.credit_notes.read', 'receivables.credit_notes.create', 'receivables.credit_notes.post', 'receivables.credit_notes.hold', 'receivables.credit_notes.apply', 'receivables.credit_notes.refund', 'receivables.credit_notes.reverse',
+            'payables.debit_notes.read', 'payables.debit_notes.create', 'payables.debit_notes.post', 'payables.debit_notes.hold', 'payables.debit_notes.apply', 'payables.debit_notes.refund', 'payables.debit_notes.reverse',
+            'reconciliation.accounts.read', 'reconciliation.accounts.configure',
+            'reconciliation.reconciliations.read', 'reconciliation.reconciliations.open', 'reconciliation.reconciliations.import', 'reconciliation.reconciliations.generate_suggestions', 'reconciliation.reconciliations.match', 'reconciliation.reconciliations.confirm', 'reconciliation.reconciliations.create_bank_entry', 'reconciliation.reconciliations.complete', 'reconciliation.reconciliations.reopen',
         ]);
         $checkerRole = $this->role('50000000-0000-4000-8000-000000000002', $entity, 'M2 UAT Finance Approver', 'accountant', [
             'identity.approvals.approve', 'payables.bills.approve', 'payables.bills.read', 'payables.vendors.read', 'payables.expenses.read',
             'receivables.customers.read', 'receivables.invoices.read', 'ledger.accounts.read', 'ledger.journals.read', 'ledger.reports.read', 'periods.read', 'tax.codes.read', 'fx.rates.read',
+            // approve() additionally requires the checker to hold the exact gated capability of whatever they are approving (ApprovalLifecycleService::canApprove), not just identity.approvals.approve.
+            'settlement.receipts.create', 'settlement.payments.create', 'settlement.allocations.read', 'settlement.credits.read',
+            'receivables.credit_notes.read', 'receivables.credit_notes.post', 'payables.debit_notes.read', 'payables.debit_notes.post',
+            'reconciliation.accounts.read', 'reconciliation.reconciliations.read',
         ]);
         $auditorRole = $this->role('50000000-0000-4000-8000-000000000003', $entity, 'M2 UAT Read-only Auditor', 'auditor', [
             'receivables.customers.read', 'receivables.invoices.read', 'payables.vendors.read', 'payables.bills.read', 'payables.expenses.read',
             'ledger.accounts.read', 'ledger.journals.read', 'ledger.reports.read', 'periods.read', 'tax.codes.read', 'fx.rates.read',
+            'settlement.allocations.read', 'settlement.credits.read', 'receivables.credit_notes.read', 'payables.debit_notes.read', 'reconciliation.accounts.read', 'reconciliation.reconciliations.read',
         ]);
         foreach ([[$maker, $makerRole], [$checker, $checkerRole], [$auditor, $auditorRole]] as [$user, $role]) {
             $user->entities()->attach($entity->id, ['status' => 'active']);
@@ -121,6 +145,10 @@ final class M2UatSeeder extends Seeder
         $this->account(self::OUTPUT_TAX_ACCOUNT, $entity, '2200', 'Output VAT Payable', 'liability', 'credit');
         $this->account(self::REVENUE_ACCOUNT, $entity, '4100', 'Service Revenue', 'revenue', 'credit');
         $this->account(self::EXPENSE_ACCOUNT, $entity, '5100', 'Operating Expense', 'expense', 'debit');
+        $this->account(self::CUSTOMER_CREDIT_ACCOUNT, $entity, '2110', 'Customer Credit (Unapplied)', 'liability', 'credit');
+        $this->account(self::VENDOR_CREDIT_ACCOUNT, $entity, '1150', 'Vendor Advance (Unapplied)', 'asset', 'debit');
+        $this->account(self::FX_GAIN_ACCOUNT, $entity, '4200', 'Realised FX Gain', 'revenue', 'credit');
+        $this->account(self::FX_LOSS_ACCOUNT, $entity, '5200', 'Realised FX Loss', 'expense', 'debit');
         $this->taxAndFx($entity);
         $this->configureApplication();
 
@@ -143,23 +171,23 @@ final class M2UatSeeder extends Seeder
         $this->expect($invoices->issue($maker, $entity->id, $foreignInvoice['id'], '80000000-0000-4000-8000-000000000024', '1'));
 
         $bills = app(BillService::class);
+        $approvals = app(ApprovalLifecycleService::class);
         $approvedBill = $this->resource($bills->create($maker, $entity->id, $this->billData($primaryVendor['id'], '500.0000', 'UAT-DOMESTIC-BILL', self::TAX_CODE_ID), '80000000-0000-4000-8000-000000000031'), 'bill');
-        $approval = $this->expect($bills->approve($maker, $entity->id, $approvedBill['id'], '80000000-0000-4000-8000-000000000032', '1'))->payload['approval'];
-        $approvalResult = app(ApprovalLifecycleService::class)->approve($checker, $entity->id, $approval['id'], '80000000-0000-4000-8000-000000000033', '1', '70000000-0000-4000-8000-000000000033');
-        if (! $approvalResult->ok) {
-            throw new RuntimeException('Approved UAT bill replay failed: '.json_encode($approvalResult->payload, JSON_THROW_ON_ERROR));
-        }
+        $this->approveIfPending($approvals, $checker, $entity->id, $bills->approve($maker, $entity->id, $approvedBill['id'], '80000000-0000-4000-8000-000000000032', '1'), '80000000-0000-4000-8000-000000000033', '70000000-0000-4000-8000-000000000033');
         $pendingBill = $this->resource($bills->create($maker, $entity->id, $this->billData($secondaryVendor['id'], '250.0000', 'UAT-PENDING-BILL', null), '80000000-0000-4000-8000-000000000034'), 'bill');
         $pendingApproval = $this->expect($bills->approve($maker, $entity->id, $pendingBill['id'], '80000000-0000-4000-8000-000000000035', '1'))->payload['approval'];
 
         $expenses = app(ExpenseService::class);
         $this->expect($expenses->create($maker, $entity->id, ['expense_date' => '2026-07-18', 'description' => 'UAT office supplies', 'category_account_id' => self::EXPENSE_ACCOUNT, 'settlement_type' => 'cash', 'bank_account_id' => self::BANK_ACCOUNT, 'currency' => 'BDT', 'amount' => ['amount' => '120.0000', 'currency' => 'BDT'], 'tax_code_id' => null, 'ait' => null, 'sbu_allocations' => [['sbu_code' => 'OPS', 'weight' => '1.0000']]], '80000000-0000-4000-8000-000000000041'));
 
+        $this->seedNotesSettlementAndReconciliation($entity, $maker, $checker, $domesticCustomer['id'], $domesticInvoice['id'], $primaryVendor['id'], $approvedBill['id']);
+
         $this->command?->newLine();
-        $this->command?->info('M2 UAT seed complete (LOCAL/UAT ONLY).');
+        $this->command?->info('M0-M6 UAT seed complete (LOCAL/UAT ONLY).');
         $this->command?->line('Entity ID: '.self::ENTITY_ID);
         $this->command?->line('Pending bill approval ID: '.$pendingApproval['id']);
         $this->command?->line('Shared UAT password: '.self::PASSWORD);
+        $this->command?->line('Seeded: customers/vendors/invoices/bills/expenses (M2), a posted credit note and debit note (M4A), receipts/a customer credit advance/a payment (M3), and a reconciliation account (M6).');
     }
 
     private function configureApplication(): void
@@ -180,6 +208,20 @@ final class M2UatSeeder extends Seeder
         config()->set('valuation.fx.source_precedence', ['uat_manual']);
         config()->set('valuation.fx.rounding_mode', 'half_up');
         config()->set('valuation.fx.rounding_scale', 4);
+        config()->set('documents.reason_codes', ['UAT_SERVICE_ADJUSTMENT']);
+        config()->set('documents.credit_note.number_prefix', 'UAT-CN');
+        config()->set('documents.credit_note.number_format', '{prefix}-{fiscal_year}-{sequence}');
+        config()->set('documents.debit_note.number_prefix', 'UAT-DN');
+        config()->set('documents.debit_note.number_format', '{prefix}-{fiscal_year}-{sequence}');
+        config()->set('settlement.receipt', ['number_prefix' => 'UAT-RCPT', 'number_format' => '{prefix}-{fiscal_year}-{sequence}']);
+        config()->set('settlement.payment', ['number_prefix' => 'UAT-PAY', 'number_format' => '{prefix}-{fiscal_year}-{sequence}']);
+        config()->set('settlement.refund', ['number_prefix' => 'UAT-REF', 'number_format' => '{prefix}-{fiscal_year}-{sequence}']);
+        config()->set('settlement.accounts', [
+            'customer_credit' => self::CUSTOMER_CREDIT_ACCOUNT,
+            'vendor_credit' => self::VENDOR_CREDIT_ACCOUNT,
+            'realised_fx_gain' => self::FX_GAIN_ACCOUNT,
+            'realised_fx_loss' => self::FX_LOSS_ACCOUNT,
+        ]);
     }
 
     private function taxAndFx(Entity $entity): void
@@ -214,6 +256,86 @@ final class M2UatSeeder extends Seeder
     private function account(string $id, Entity $entity, string $code, string $name, string $type, string $normalBalance, ?array $bankAttributes = null): LedgerAccount
     {
         return $this->withId(new LedgerAccount, $id, ['entity_id' => $entity->id, 'code' => $code, 'name' => $name, 'description' => 'Local M2 UAT only', 'type' => $type, 'normal_balance' => $normalBalance, 'status' => 'active', 'bank_attributes' => $bankAttributes, 'version' => 1]);
+    }
+
+    /** Notes are drafted/posted against the domestic invoice and approved bill while
+     * their status still permits it (CreditNoteService/DebitNoteService require the
+     * source document to still be 'sent'/'awaiting_payment'); Settlement then fully
+     * settles both afterward. Reversing this order would leave the source documents
+     * 'paid' before the note commands could validate against them. */
+    private function seedNotesSettlementAndReconciliation(Entity $entity, User $maker, User $checker, string $domesticCustomerId, string $domesticInvoiceId, string $primaryVendorId, string $approvedBillId): void
+    {
+        $approvals = app(ApprovalLifecycleService::class);
+
+        $invoice = Invoice::query()->with('lines')->findOrFail($domesticInvoiceId);
+        $creditNotes = app(CreditNoteService::class);
+        $creditNote = $this->resource($creditNotes->create($maker, $entity->id, [
+            'party_type' => 'customer', 'document_type' => 'invoice', 'party_id' => $domesticCustomerId,
+            'source_document_id' => $invoice->id, 'source_document_expected_version' => $invoice->version,
+            'note_date' => '2026-07-21', 'reason_code' => 'UAT_SERVICE_ADJUSTMENT', 'narrative' => 'UAT illustrative service correction',
+            'lines' => [['source_line_id' => $invoice->lines->first()->id, 'description' => 'UAT correction', 'net_amount' => ['amount' => '50.0000', 'currency' => 'BDT']]],
+        ], '80000000-0000-4000-8000-000000000061'), 'credit_note');
+        $this->approveIfPending($approvals, $checker, $entity->id, $creditNotes->post($maker, $entity->id, $creditNote['id'], '80000000-0000-4000-8000-000000000062', '1'), '80000000-0000-4000-8000-000000000063', '70000000-0000-4000-8000-000000000063');
+
+        $bill = Bill::query()->with('lines')->findOrFail($approvedBillId);
+        $debitNotes = app(DebitNoteService::class);
+        $debitNote = $this->resource($debitNotes->create($maker, $entity->id, [
+            'party_type' => 'vendor', 'document_type' => 'bill', 'party_id' => $primaryVendorId,
+            'source_document_id' => $bill->id, 'source_document_expected_version' => $bill->version,
+            'note_date' => '2026-07-21', 'reason_code' => 'UAT_SERVICE_ADJUSTMENT', 'narrative' => 'UAT illustrative service correction',
+            'lines' => [['source_line_id' => $bill->lines->first()->id, 'description' => 'UAT correction', 'net_amount' => ['amount' => '25.0000', 'currency' => 'BDT']]],
+        ], '80000000-0000-4000-8000-000000000064'), 'debit_note');
+        $this->approveIfPending($approvals, $checker, $entity->id, $debitNotes->post($maker, $entity->id, $debitNote['id'], '80000000-0000-4000-8000-000000000065', '1'), '80000000-0000-4000-8000-000000000066', '70000000-0000-4000-8000-000000000066');
+
+        $settlement = app(SettlementService::class);
+        $invoice->refresh();
+        $this->approveIfPending($approvals, $checker, $entity->id, $settlement->receipt($maker, $entity->id, [
+            'customer_id' => $domesticCustomerId, 'settlement_date' => '2026-07-22', 'bank_account_id' => self::BANK_ACCOUNT,
+            'gross_amount' => ['amount' => $invoice->open_balance, 'currency' => 'BDT'], 'bank_amount' => ['amount' => $invoice->open_balance, 'currency' => 'BDT'],
+            'withholding_amount' => ['amount' => '0.0000', 'currency' => 'BDT'], 'unapplied_amount' => ['amount' => '0.0000', 'currency' => 'BDT'],
+            'rate_record_id' => null, 'withholding_lines' => [],
+            'allocations' => [['invoice_id' => $invoice->id, 'applied_amount' => ['amount' => $invoice->open_balance, 'currency' => 'BDT'], 'expected_version' => $invoice->version]],
+        ], '80000000-0000-4000-8000-000000000067'), '80000000-0000-4000-8000-000000000068', '70000000-0000-4000-8000-000000000068');
+
+        $this->approveIfPending($approvals, $checker, $entity->id, $settlement->receipt($maker, $entity->id, [
+            'customer_id' => $domesticCustomerId, 'settlement_date' => '2026-07-22', 'bank_account_id' => self::BANK_ACCOUNT,
+            'gross_amount' => ['amount' => '200.0000', 'currency' => 'BDT'], 'bank_amount' => ['amount' => '200.0000', 'currency' => 'BDT'],
+            'withholding_amount' => ['amount' => '0.0000', 'currency' => 'BDT'], 'unapplied_amount' => ['amount' => '200.0000', 'currency' => 'BDT'],
+            'rate_record_id' => null, 'withholding_lines' => [], 'allocations' => [], 'party_credit_expected_version' => 0,
+        ], '80000000-0000-4000-8000-000000000069'), '80000000-0000-4000-8000-00000000006a', '70000000-0000-4000-8000-00000000006a');
+
+        $bill->refresh();
+        $this->approveIfPending($approvals, $checker, $entity->id, $settlement->payment($maker, $entity->id, [
+            'vendor_id' => $primaryVendorId, 'settlement_date' => '2026-07-22', 'bank_account_id' => self::BANK_ACCOUNT,
+            'gross_amount' => ['amount' => $bill->open_balance, 'currency' => 'BDT'], 'bank_amount' => ['amount' => $bill->open_balance, 'currency' => 'BDT'],
+            'withholding_amount' => ['amount' => '0.0000', 'currency' => 'BDT'], 'unapplied_amount' => ['amount' => '0.0000', 'currency' => 'BDT'],
+            'rate_record_id' => null, 'withholding_lines' => [],
+            'allocations' => [['bill_id' => $bill->id, 'applied_amount' => ['amount' => $bill->open_balance, 'currency' => 'BDT'], 'expected_version' => $bill->version]],
+        ], '80000000-0000-4000-8000-00000000006b'), '80000000-0000-4000-8000-00000000006c', '70000000-0000-4000-8000-00000000006c');
+
+        $this->expect(app(ReconciliationAccountService::class)->configure($maker, $entity->id, [
+            'ledger_account_id' => self::BANK_ACCOUNT, 'currency' => 'BDT', 'display_name' => 'UAT Operating Bank Reconciliation',
+            'masked_bank_identifier' => '****4821',
+        ], '80000000-0000-4000-8000-00000000006d'));
+    }
+
+    /** Every command above runs against an entity with a non-empty approval_policy, so
+     * every gated action returns a 202 pending approval rather than executing inline —
+     * this mirrors the checker-approval replay already used for the M2 bill fixture. */
+    private function approveIfPending(ApprovalLifecycleService $approvals, User $checker, string $entityId, DocumentActionResult $result, string $key, string $correlationId): void
+    {
+        $this->expect($result);
+        if ($result->status !== 202) {
+            return;
+        }
+        $approval = $result->payload['approval'] ?? null;
+        if (! is_array($approval) || ! isset($approval['id'])) {
+            throw new RuntimeException('Expected a pending approval payload from a UAT seed command.');
+        }
+        $approved = $approvals->approve($checker, $entityId, (string) $approval['id'], $key, '1', $correlationId);
+        if (! $approved->ok) {
+            throw new RuntimeException('M2 UAT seed approval replay failed: '.json_encode($approved->payload, JSON_THROW_ON_ERROR));
+        }
     }
 
     private function expect(DocumentActionResult $result): DocumentActionResult
