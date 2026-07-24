@@ -2,6 +2,7 @@ import { CheckCircle2, ShieldCheck } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 
 import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, PageHeader } from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { ApiRequestError } from '@/features/identity/auth-api'
 import { hasPermission } from '@/features/identity/permissions'
 import { approvalsApi, type ApprovalOutcome } from './approvals-api'
@@ -31,14 +32,13 @@ export function ApprovalsPage() {
   }
 
   return (
-    <main className="p-6">
-      <div className="mx-auto max-w-3xl space-y-5">
-        <PageHeader
-          title="Approvals"
-          description="Complete a maker-checker command that is pending a second, distinct approver."
-          actions={<Badge variant="info">Four-eyes</Badge>}
-        />
-
+    <AppLayout>
+      <PageHeader
+        title="Approvals"
+        description="Complete a maker-checker command that is pending a second, distinct approver."
+        actions={<Badge variant="info">Four-eyes</Badge>}
+      />
+      <div className="space-y-4 p-4 lg:p-6">
         <Alert>
           <p className="font-medium text-[var(--color-text)]">How to find an approval id</p>
           <p className="mt-1 text-[var(--color-text-muted)]">
@@ -112,6 +112,6 @@ export function ApprovalsPage() {
           </Card>
         ) : null}
       </div>
-    </main>
+    </AppLayout>
   )
 }

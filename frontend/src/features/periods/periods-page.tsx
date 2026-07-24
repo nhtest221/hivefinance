@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { ApiRequestError } from '@/features/identity/auth-api'
 import { hasPermission } from '@/features/identity/permissions'
 import { periodsApi, type CloseGate, type Period, type PeriodDetail, type PeriodState, PeriodRequestError } from './periods-api'
@@ -106,16 +107,22 @@ export function PeriodsPage() {
     }
   }
 
-  if (!canRead) return <main className="p-6"><Alert>You do not have permission to view periods.</Alert></main>
+  if (!canRead) {
+    return (
+      <AppLayout>
+        <PageHeader title="Periods & Close" description="Soft Close, Hard Close, and Reopen the fiscal calendar." />
+        <div className="p-4 lg:p-6"><Alert>You do not have permission to view periods.</Alert></div>
+      </AppLayout>
+    )
+  }
 
   return (
-    <main className="p-6">
-      <div className="mx-auto max-w-6xl space-y-5">
-        <PageHeader
-          title="Periods & Close"
-          description="Soft Close, Hard Close, and Reopen the fiscal calendar. Hard Close and Reopen always require a second, distinct approver."
-        />
-
+    <AppLayout>
+      <PageHeader
+        title="Periods & Close"
+        description="Soft Close, Hard Close, and Reopen the fiscal calendar. Hard Close and Reopen always require a second, distinct approver."
+      />
+      <div className="space-y-4 p-4 lg:p-6">
         {message ? (
           <Alert className={message.tone === 'error' ? 'border-red-200 bg-red-50 text-[var(--color-danger)]' : undefined}>{message.text}</Alert>
         ) : null}
@@ -180,7 +187,7 @@ export function PeriodsPage() {
           {selected ? <PeriodDetailView period={selected} /> : null}
         </DrawerContent>
       </Drawer>
-    </main>
+    </AppLayout>
   )
 }
 
