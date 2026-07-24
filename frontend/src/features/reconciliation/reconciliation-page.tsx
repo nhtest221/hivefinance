@@ -1,9 +1,62 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { approvalsApi, reconciliationAccountsApi, reconciliationsApi, type Approval, type BankReconciliation, type ReconciliationAccount, type StatementLine } from './reconciliation-api'
+import { approvalsApi, reconciliationAccountsApi, reconciliationsApi, type Approval, type BankReconciliation, type ImportLineInput, type ReconciliationAccount, type StatementLine } from './reconciliation-api'
 import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
 import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
+
+/** Splits one CSV line on unquoted commas, stripping surrounding quotes from each
+ * field. Deliberately minimal (no embedded-newline support) — sufficient for a bank
+ * statement export of transaction_date,narration,amount,currency,external_bank_reference. */
+function splitCsvLine(line: string): string[] {
+  const fields: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i]
+    if (char === '"') { inQuotes = !inQuotes; continue }
+    if (char === ',' && !inQuotes) { fields.push(current.trim()); current = ''; continue }
+    current += char
+  }
+  fields.push(current.trim())
+  return fields
+}
+
+/** Parses a bank-statement CSV with header row `transaction_date,narration,amount,currency,external_bank_reference`
+ * (currency and external_bank_reference optional per row; currency falls back to the
+ * reconciliation account's own currency when omitted). */
+function parseStatementCsv(text: string, fallbackCurrency: string): ImportLineInput[] {
+  const rows = text.split(/\r?\n/).map((row) => row.trim()).filter((row) => row.length > 0)
+  if (rows.length === 0) return []
+  const header = splitCsvLine(rows[0]).map((h) => h.toLowerCase())
+  const col = (name: string) => header.indexOf(name)
+  const dateCol = col('transaction_date')
+  const narrationCol = col('narration')
+  const amountCol = col('amount')
+  const currencyCol = col('currency')
+  const refCol = col('external_bank_reference')
+  const dataRows = dateCol === -1 || narrationCol === -1 || amountCol === -1 ? rows : rows.slice(1)
+  return dataRows.map((row, index) => {
+    const fields = splitCsvLine(row)
+    const transactionDate = dateCol === -1 ? fields[0] : fields[dateCol]
+    const narration = narrationCol === -1 ? fields[1] : fields[narrationCol]
+    const amount = amountCol === -1 ? fields[2] : fields[amountCol]
+    const currency = currencyCol !== -1 && fields[currencyCol] ? fields[currencyCol] : fallbackCurrency
+    const externalRef = refCol !== -1 ? fields[refCol] : undefined
+    return {
+      source_line_identity: `${transactionDate}|${narration}|${amount}|${index}`,
+      transaction_date: transactionDate,
+      narration,
+      amount: { amount, currency },
+      external_bank_reference: externalRef || undefined,
+    }
+  })
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 function stateVariant(state: string): 'success' | 'warning' | 'danger' | 'neutral' {
   if (state === 'Completed') return 'success'
@@ -131,7 +184,7 @@ function ReconciliationsPanel() {
     {message ? <Alert>{message}</Alert> : null}
     {canOpen ? <Card><CardHeader><h2 className="font-semibold">Open a reconciliation batch</h2></CardHeader><CardContent className="space-y-3">
       <div className="grid gap-2 md:grid-cols-4">
-        <select className="rounded-md border p-2" value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)}>
+        <select aria-label="Bank account" className="rounded-md border p-2" value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)}>
           <option value="">Select bank account…</option>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.display_name}</option>)}
         </select>
@@ -174,6 +227,8 @@ function ReconciliationDetail({ reconciliation, pendingApproval, setPendingAppro
   const [externalRef, setExternalRef] = useState('')
   const [offsetAccountId, setOffsetAccountId] = useState('')
   const [approvalVersion, setApprovalVersion] = useState('1')
+  const [csvBusy, setCsvBusy] = useState(false)
+  const csvInputRef = useRef<HTMLInputElement>(null)
   const canImport = hasPermission('reconciliation.reconciliations.import')
   const canMatch = hasPermission('reconciliation.reconciliations.match')
   const canConfirm = hasPermission('reconciliation.reconciliations.confirm')
@@ -190,6 +245,24 @@ function ReconciliationDetail({ reconciliation, pendingApproval, setPendingAppro
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Import failed.') }
   }
 
+  async function importCsvFile(file: File) {
+    setCsvBusy(true)
+    try {
+      const text = await file.text()
+      const lines = parseStatementCsv(text, currency)
+      if (lines.length === 0) { setMessage('The CSV file has no data rows to import.'); return }
+      const hash = await sha256Hex(text)
+      const result = await reconciliationsApi.import(reconciliation.id, { file_hash: hash, lines })
+      setMessage(`Imported ${result.imported} line(s) from the CSV file${result.conflicts.length > 0 ? `; ${result.conflicts.length} conflict(s) skipped` : ''}.`)
+      await onRefresh()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'CSV import failed.')
+    } finally {
+      setCsvBusy(false)
+      if (csvInputRef.current) csvInputRef.current.value = ''
+    }
+  }
+
   async function generateSuggestions() {
     try { const result = await reconciliationsApi.generateMatchSuggestions(reconciliation.id); setMessage(`${result.suggested} suggested, ${result.unexplained} unexplained.`); await onRefresh() } catch (error) { setMessage(error instanceof Error ? error.message : 'Suggestion generation failed.') }
   }
@@ -201,9 +274,18 @@ function ReconciliationDetail({ reconciliation, pendingApproval, setPendingAppro
       // In this minimal UI, matching a suggestion requires fetching it via GenerateMatchSuggestions'
       // own response; re-run suggestions and match the first ranked group for this line.
       const result = await reconciliationsApi.generateMatchSuggestions(reconciliation.id)
-      const suggestion = result.lines.find((l) => l.line_id === line.id)?.suggestions[0]
-      if (!suggestion) { setMessage('No suggestion available for this line.'); return }
-      await reconciliationsApi.matchLine(reconciliation.id, { ...unmatched, version: result.lines.find((l) => l.line_id === line.id)!.version }, suggestion.allocation_ids)
+      const current = result.lines.find((l) => l.line_id === line.id)
+      const suggestion = current?.suggestions[0]
+      if (!current || !suggestion) { setMessage('No suggestion available for this line.'); return }
+      // Many-statement-lines-to-one-allocation suggestions are returned as one entry per
+      // sibling line, each pointing at the same allocation_ids set — the backend requires
+      // every sibling's id in line_ids in the same request or the group total won't match
+      // (ReconciliationService::matchLine sums every line in line_ids against allocation_ids).
+      const sameAllocationSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().every((id, i) => id === [...b].sort()[i])
+      const siblingIds = result.lines
+        .filter((l) => l.line_id !== line.id && l.suggestions[0] && sameAllocationSet(l.suggestions[0].allocation_ids, suggestion.allocation_ids))
+        .map((l) => l.line_id)
+      await reconciliationsApi.matchLine(reconciliation.id, { ...unmatched, version: current.version }, suggestion.allocation_ids, siblingIds.length > 0 ? [line.id, ...siblingIds] : undefined)
       await onRefresh()
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Match failed.') }
   }
@@ -266,6 +348,17 @@ function ReconciliationDetail({ reconciliation, pendingApproval, setPendingAppro
           <Input placeholder="External bank reference (optional)" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} />
         </div>
         <Button variant="secondary" onClick={() => void importLine()}>Import line</Button>
+        <div className="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
+          <span className="text-xs text-[var(--color-text-muted)]">Or import a whole statement — CSV columns: transaction_date, narration, amount, currency, external_bank_reference (currency optional, defaults to {currency}):</span>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            disabled={csvBusy}
+            onChange={(e) => { const file = e.target.files?.[0]; if (file) void importCsvFile(file) }}
+            className="text-xs"
+          />
+        </div>
       </div> : null}
 
       {editable ? <Button variant="secondary" onClick={() => void generateSuggestions()}>Generate match suggestions</Button> : null}

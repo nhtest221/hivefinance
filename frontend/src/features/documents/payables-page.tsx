@@ -473,7 +473,7 @@ function BillForm({ vendors, accounts, onDone, onError }: { vendors: Vendor[]; a
 
           <div className="space-y-2">
             {lines.map((line, index) => (
-              <div className="grid grid-cols-[1fr_5rem_7rem_1fr_auto] gap-2" key={index}>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_5rem_7rem_1fr_auto]" key={index}>
                 <Input placeholder="Description" value={line.description} onChange={(e) => { updateLine(index, { description: e.target.value }) }} required />
                 <Input placeholder="Qty" value={line.quantity} onChange={(e) => { updateLine(index, { quantity: e.target.value }) }} required />
                 <Input placeholder={`Price${selected ? ` (${selected.default_currency})` : ''}`} value={line.unitPrice} onChange={(e) => { updateLine(index, { unitPrice: e.target.value }) }} required />

@@ -72,5 +72,5 @@ export const periodsApi = {
   show: (id: string) => request<{ period: PeriodDetail }>(`/v1/periods/${id}`),
   softClose: (period: Period) => request<CommandResult<{ period: Period }>>(`/v1/periods/${period.id}/soft-close`, { method: 'POST', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(period.version) }, body: '{}' }),
   hardClose: (period: Period) => request<CommandResult<{ period: Period }>>(`/v1/periods/${period.id}/hard-close`, { method: 'POST', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(period.version) }, body: '{}' }),
-  reopen: (period: Period, input: { reason_code: string; vat_unlock_requested: boolean }) => request<CommandResult<{ period: Period }>>(`/v1/periods/${period.id}/reopen`, { method: 'POST', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(period.version) }, body: JSON.stringify(input) }),
+  reopen: (period: Period, input: { reason_code: string; narrative: string; vat_unlock_requested: boolean }) => request<CommandResult<{ period: Period }>>(`/v1/periods/${period.id}/reopen`, { method: 'POST', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(period.version) }, body: JSON.stringify(input) }),
 }
