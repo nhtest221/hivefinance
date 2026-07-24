@@ -1,8 +1,11 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import { notesApi, type Note, type NoteApi, type NoteCommandResult } from './notes-api'
-import { Alert, Badge, Button, Card, CardContent, CardHeader, Input, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@/design-system'
+import { Alert, Badge, Button, Card, CardContent, CardHeader, EmptyState, Input, LoadingState, PageHeader, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@/design-system'
+import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
+
+const noteStateVariant: Record<Note['state'], 'neutral' | 'success' | 'danger'> = { draft: 'neutral', posted: 'success', reversed: 'danger' }
 
 function parseArray(value: string, label: string): unknown[] {
   const parsed = JSON.parse(value) as unknown
@@ -16,13 +19,21 @@ function outcome(result: NoteCommandResult, verb: string): string {
 }
 
 export function NotesPage() {
-  return <main className="p-6"><div className="mx-auto max-w-6xl space-y-5">
-    <div><h1 className="text-2xl font-semibold">Notes</h1><p className="text-sm text-[var(--color-text-muted)]">Credit and debit notes: correction drafting, posting, and disposition (apply, hold, refund, reverse).</p></div>
-    <Tabs defaultValue="credit"><TabsList><TabsTrigger value="credit">Credit notes</TabsTrigger><TabsTrigger value="debit">Debit notes</TabsTrigger></TabsList>
-      <TabsContent value="credit"><NotePanel api={notesApi.creditNotes} partyLabel="Customer" sourceLabel="Invoice" prefix="receivables.credit_notes" /></TabsContent>
-      <TabsContent value="debit"><NotePanel api={notesApi.debitNotes} partyLabel="Vendor" sourceLabel="Bill" prefix="payables.debit_notes" /></TabsContent>
-    </Tabs>
-  </div></main>
+  return (
+    <AppLayout>
+      <PageHeader title="Notes" description="Credit and debit notes: correction drafting, posting, and disposition (apply, hold, refund, reverse)." />
+      <div className="space-y-4 p-4 lg:p-6">
+        <Tabs defaultValue="credit">
+          <TabsList>
+            <TabsTrigger value="credit">Credit notes</TabsTrigger>
+            <TabsTrigger value="debit">Debit notes</TabsTrigger>
+          </TabsList>
+          <TabsContent value="credit"><NotePanel api={notesApi.creditNotes} partyLabel="Customer" sourceLabel="Invoice" prefix="receivables.credit_notes" /></TabsContent>
+          <TabsContent value="debit"><NotePanel api={notesApi.debitNotes} partyLabel="Vendor" sourceLabel="Bill" prefix="payables.debit_notes" /></TabsContent>
+        </Tabs>
+      </div>
+    </AppLayout>
+  )
 }
 
 function NotePanel({ api, partyLabel, sourceLabel, prefix }: { api: NoteApi; partyLabel: string; sourceLabel: string; prefix: string }) {
@@ -34,12 +45,14 @@ function NotePanel({ api, partyLabel, sourceLabel, prefix }: { api: NoteApi; par
   const canRefund = hasPermission(`${prefix}.refund`)
   const canReverse = hasPermission(`${prefix}.reverse`)
   const [notes, setNotes] = useState<Note[]>([])
+  const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
   const [selected, setSelected] = useState<Note | null>(null)
 
   const load = useCallback(async () => {
     if (!canRead) return
-    try { setNotes((await api.list()).notes) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to load notes.') }
+    setLoading(true)
+    try { setNotes((await api.list()).notes) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to load notes.') } finally { setLoading(false) }
   }, [canRead, api])
   useEffect(() => { void load() }, [load])
 
@@ -52,7 +65,11 @@ function NotePanel({ api, partyLabel, sourceLabel, prefix }: { api: NoteApi; par
   return <div className="space-y-4">
     {message ? <Alert>{message}</Alert> : null}
     {canCreate ? <NoteCreateForm api={api} partyLabel={partyLabel} sourceLabel={sourceLabel} onDone={async (text) => { setMessage(text); await load() }} /> : null}
-    <Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Date</TableHead><TableHead>State</TableHead><TableHead>Posted</TableHead><TableHead>Applied</TableHead><TableHead>Refunded</TableHead><TableHead>Held</TableHead><TableHead>Undisposed</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{notes.map((n) => <TableRow key={n.id}><TableCell>{n.document_number ?? n.id.slice(0, 8)}</TableCell><TableCell>{n.note_date}</TableCell><TableCell><Badge>{n.state}</Badge></TableCell><TableCell>{n.posted_amount.currency} {n.posted_amount.amount}</TableCell><TableCell>{n.applied_amount.amount}</TableCell><TableCell>{n.refunded_amount.amount}</TableCell><TableCell>{n.held_remaining_amount.amount}</TableCell><TableCell>{n.undisposed_amount.amount}</TableCell><TableCell className="space-x-2">{n.state === 'draft' && canPost ? <Button variant="secondary" onClick={() => void post(n)}>Post</Button> : null}{n.state === 'posted' && (canHold || canApply || canRefund || canReverse) ? <Button variant="secondary" onClick={() => setSelected(n)}>Disposition</Button> : null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card>
+    <Card className="overflow-hidden"><CardContent className="p-0">
+      {loading ? <div className="p-6"><LoadingState label="Loading notes" /></div>
+        : notes.length === 0 ? <div className="p-6"><EmptyState title="No notes yet" description="Draft your first note using the form above." /></div>
+        : <Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Date</TableHead><TableHead>State</TableHead><TableHead className="text-right">Posted</TableHead><TableHead className="text-right">Applied</TableHead><TableHead className="text-right">Refunded</TableHead><TableHead className="text-right">Held</TableHead><TableHead className="text-right">Undisposed</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><tbody>{notes.map((n) => <TableRow key={n.id}><TableCell className="font-medium">{n.document_number ?? n.id.slice(0, 8)}</TableCell><TableCell className="text-[var(--color-text-muted)]">{n.note_date}</TableCell><TableCell><Badge variant={noteStateVariant[n.state]}>{n.state}</Badge></TableCell><TableCell className="text-right tabular-nums">{n.posted_amount.currency} {n.posted_amount.amount}</TableCell><TableCell className="text-right tabular-nums">{n.applied_amount.amount}</TableCell><TableCell className="text-right tabular-nums">{n.refunded_amount.amount}</TableCell><TableCell className="text-right tabular-nums">{n.held_remaining_amount.amount}</TableCell><TableCell className="text-right tabular-nums">{n.undisposed_amount.amount}</TableCell><TableCell className="text-right space-x-2">{n.state === 'draft' && canPost ? <Button variant="secondary" size="sm" onClick={() => void post(n)}>Post</Button> : null}{n.state === 'posted' && (canHold || canApply || canRefund || canReverse) ? <Button variant="secondary" size="sm" onClick={() => setSelected(n)}>Disposition</Button> : null}</TableCell></TableRow>)}</tbody></Table>}
+    </CardContent></Card>
     {selected ? <NoteDispositionForm api={api} note={selected} canHold={canHold} canApply={canApply} canRefund={canRefund} canReverse={canReverse} onClose={() => setSelected(null)} onDone={async (text) => { setMessage(text); setSelected(null); await load() }} /> : null}
   </div>
 }

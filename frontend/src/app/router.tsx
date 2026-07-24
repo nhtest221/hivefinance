@@ -18,6 +18,8 @@ import { SettlementPage } from '@/features/settlement/settlement-page'
 import { NotesPage } from '@/features/notes/notes-page'
 import { ReportingPage } from '@/features/reporting/reporting-page'
 import { ReconciliationPage } from '@/features/reconciliation/reconciliation-page'
+import { ApprovalsPage } from '@/features/approvals/approvals-page'
+import { PeriodsPage } from '@/features/periods/periods-page'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -34,6 +36,8 @@ export const router = createBrowserRouter([
   { path: '/tax', element: <TaxPage /> },
   { path: '/fx', element: <FxPage /> },
   { path: '/reports', element: <ReportingPage /> },
+  { path: '/periods', element: <PeriodsPage /> },
+  { path: '/approvals', element: <ApprovalsPage /> },
   { path: '/audit-log', element: <AuditLogPage /> },
   { path: '/settings', element: <SettingsPage /> },
 ])

@@ -13,21 +13,3 @@ export const cashTrend = [
   { month: 'May', inflow: 12.4, outflow: 6.0 },
   { month: 'Jun', inflow: 11.8, outflow: 5.5 },
 ]
-
-export const accountingPeriods = [
-  ['FY26-P01', '1 Jul 2026', '31 Jul 2026', 'Open', 'Normal posting'],
-  ['FY25-P12', '1 Jun 2026', '30 Jun 2026', 'Hard closed', 'Corrections route forward'],
-  ['FY25-P11', '1 May 2026', '31 May 2026', 'Soft closed', 'Adjusting only'],
-]
-
-export const settlements = [
-  ['RCPT-8831', 'Receipt', 'Northstar Digital', 'USD 9,000', 'USD 1,000 AIT', 'BDT 42,300 gain'],
-  ['PMT-4419', 'Payment', 'Cloud Platform Ltd.', 'USD 1,240', '-', 'BDT 5,600 loss'],
-  ['RCPT-8827', 'Receipt', 'Orbit Labs', 'BDT 530,000', 'BDT 0', '-'],
-]
-
-export const auditRows = [
-  ['14 Jul 2026 10:44', 'A. Rahman', 'InvoiceIssued', 'Receivables', 'corr-9f32'],
-  ['14 Jul 2026 10:18', 'F. Manager', 'RoleAssigned', 'Identity', 'corr-7c14'],
-  ['13 Jul 2026 16:02', 'System', 'JournalPosted', 'Ledger', 'corr-1a08'],
-]
