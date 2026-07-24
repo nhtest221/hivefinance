@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import {
@@ -12,6 +12,9 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  DialogTitle as DrawerTitle,
+  Drawer,
+  DrawerContent,
   EmptyState,
   ErrorState,
   Input,
@@ -60,6 +63,7 @@ export function ReceivablesPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [editing, setEditing] = useState<Invoice | null>(null)
   const [voiding, setVoiding] = useState<Invoice | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
 
   const load = useCallback(async () => {
     if (!canRead) return
@@ -85,6 +89,14 @@ export function ReceivablesPage() {
       window.setTimeout(() => { URL.revokeObjectURL(url) }, 60_000)
     } catch (err) {
       setMessage(err instanceof ApiRequestError ? err.message : 'PDF retrieval failed.')
+    }
+  }
+
+  async function openCustomer(customer: Customer) {
+    try {
+      setSelectedCustomer((await documentsApi.customer(customer.id)).data.customer)
+    } catch (err) {
+      setMessage(err instanceof ApiRequestError ? err.message : 'Unable to load customer detail.')
     }
   }
 
@@ -185,7 +197,12 @@ export function ReceivablesPage() {
                     <tbody>
                       {customers.map((customer) => (
                         <TableRow key={customer.id}>
-                          <TableCell className="font-medium">{customer.name}</TableCell>
+                          <TableCell className="font-medium">
+                            <button type="button" className="flex items-center gap-1 hover:underline" onClick={() => void openCustomer(customer)}>
+                              {customer.name}
+                              <ChevronRight className="size-3.5 text-[var(--color-text-muted)]" />
+                            </button>
+                          </TableCell>
                           <TableCell className="text-[var(--color-text-muted)]">{customer.type}</TableCell>
                           <TableCell>{customer.default_currency}</TableCell>
                           <TableCell><Badge variant={customer.status === 'active' ? 'success' : 'neutral'}>{customer.status}</Badge></TableCell>
@@ -209,7 +226,126 @@ export function ReceivablesPage() {
 
       <EditInvoiceDialog invoice={editing} onClose={() => { setEditing(null) }} onDone={load} onError={setMessage} />
       <VoidInvoiceDialog invoice={voiding} onClose={() => { setVoiding(null) }} onDone={load} onError={setMessage} />
+
+      <Drawer open={selectedCustomer !== null} onOpenChange={(open) => { if (!open) setSelectedCustomer(null) }}>
+        <DrawerContent>
+          {selectedCustomer ? (
+            <CustomerDetailDrawer
+              customer={selectedCustomer}
+              invoices={invoices.filter((invoice) => invoice.customer_id === selectedCustomer.id)}
+              canManage={canManage}
+              onUpdated={(updated) => { setSelectedCustomer(updated); void load() }}
+              onError={setMessage}
+            />
+          ) : null}
+        </DrawerContent>
+      </Drawer>
     </AppLayout>
+  )
+}
+
+function CustomerDetailDrawer({ customer, invoices, canManage, onUpdated, onError }: { customer: Customer; invoices: Invoice[]; canManage: boolean; onUpdated: (customer: Customer) => void; onError: (value: string | null) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(customer.name)
+  const [currency, setCurrency] = useState(customer.default_currency)
+  const [terms, setTerms] = useState(customer.payment_terms)
+  const [jurisdiction, setJurisdiction] = useState(customer.jurisdiction ?? '')
+  const [taxId, setTaxId] = useState(customer.tax_identifier ?? '')
+  const [email, setEmail] = useState(customer.contact?.email ?? '')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setEditing(false)
+    setName(customer.name)
+    setCurrency(customer.default_currency)
+    setTerms(customer.payment_terms)
+    setJurisdiction(customer.jurisdiction ?? '')
+    setTaxId(customer.tax_identifier ?? '')
+    setEmail(customer.contact?.email ?? '')
+  }, [customer])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSubmitting(true)
+    try {
+      const updated = await documentsApi.updateCustomer(customer, {
+        name, default_currency: currency, payment_terms: terms,
+        jurisdiction: jurisdiction || null, tax_identifier: taxId || null,
+        contact: email ? { email, phone: customer.contact?.phone ?? null } : null,
+      })
+      onUpdated(updated.data.customer)
+      setEditing(false)
+    } catch (error) {
+      onError(error instanceof ApiRequestError ? error.message : 'Customer update failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-4 overflow-y-auto">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <DrawerTitle className="text-lg font-semibold">{customer.name}</DrawerTitle>
+          <div className="mt-2 flex items-center gap-2">
+            <Badge variant={customer.status === 'active' ? 'success' : 'neutral'}>{customer.status}</Badge>
+            <span className="text-xs text-[var(--color-text-muted)] capitalize">{customer.type}</span>
+          </div>
+        </div>
+        {canManage && customer.status === 'active' && !editing ? (
+          <Button variant="secondary" size="sm" onClick={() => { setEditing(true) }}>Edit</Button>
+        ) : null}
+      </div>
+
+      {editing ? (
+        <form className="space-y-3 rounded-md border border-[var(--color-border)] p-3" onSubmit={(event) => void submit(event)}>
+          <Input placeholder="Name" value={name} onChange={(event) => { setName(event.target.value) }} required />
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="Currency" value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()) }} maxLength={3} required />
+            <Input placeholder="Payment terms" value={terms} onChange={(event) => { setTerms(event.target.value) }} required />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="Jurisdiction (optional)" value={jurisdiction} onChange={(event) => { setJurisdiction(event.target.value) }} />
+            <Input placeholder="Tax identifier (optional)" value={taxId} onChange={(event) => { setTaxId(event.target.value) }} />
+          </div>
+          <Input placeholder="Contact email (optional)" value={email} onChange={(event) => { setEmail(event.target.value) }} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => { setEditing(false) }}>Cancel</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </form>
+      ) : (
+        <dl className="grid grid-cols-2 gap-3 rounded-md border border-[var(--color-border)] p-3 text-sm">
+          <div><dt className="text-[var(--color-text-muted)]">Currency</dt><dd>{customer.default_currency}</dd></div>
+          <div><dt className="text-[var(--color-text-muted)]">Payment terms</dt><dd>{customer.payment_terms}</dd></div>
+          <div><dt className="text-[var(--color-text-muted)]">Jurisdiction</dt><dd>{customer.jurisdiction ?? '—'}</dd></div>
+          <div><dt className="text-[var(--color-text-muted)]">Tax identifier</dt><dd>{customer.tax_identifier ?? '—'}</dd></div>
+          <div className="col-span-2"><dt className="text-[var(--color-text-muted)]">Contact email</dt><dd>{customer.contact?.email ?? '—'}</dd></div>
+        </dl>
+      )}
+
+      <section>
+        <h3 className="mb-2 text-sm font-semibold">Invoices ({invoices.length})</h3>
+        {invoices.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">No invoices for this customer yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {invoices.map((invoice) => (
+              <li key={invoice.id} className="flex items-center justify-between rounded-md border border-[var(--color-border)] p-2.5 text-sm">
+                <div>
+                  <p className="font-medium">{invoice.document_number ?? 'Draft'}</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">{invoice.invoice_date}</p>
+                </div>
+                <div className="text-right">
+                  <Badge variant={invoiceStatusVariant[invoice.status]}>{invoice.status.replace(/_/g, ' ')}</Badge>
+                  <p className="mt-1 text-xs tabular-nums text-[var(--color-text-muted)]">{invoice.open_balance.currency} {invoice.open_balance.amount} open</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   )
 }
 

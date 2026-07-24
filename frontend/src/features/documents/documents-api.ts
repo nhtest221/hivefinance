@@ -2,8 +2,13 @@ import { ApiRequestError } from '@/features/identity/auth-api'
 
 export type Page = { limit: number; next_cursor: string | null }
 export type Money = { amount: string; currency: string }
-export type Customer = { id: string; name: string; type: 'local' | 'foreign'; default_currency: string; payment_terms: string; status: 'active' | 'deactivated'; version: number }
-export type Vendor = { id: string; name: string; default_currency: string; payment_terms: string; status: 'active' | 'deactivated'; version: number }
+export type Address = { line_1: string; line_2: string | null; city: string; region: string | null; postal_code: string | null; country_code: string }
+export type Contact = { email: string | null; phone: string | null }
+export type Customer = { id: string; name: string; type: 'local' | 'foreign'; jurisdiction?: string | null; tax_identifier?: string | null; default_currency: string; payment_terms: string; contact?: Contact | null; address?: Address | null; status: 'active' | 'deactivated'; version: number }
+export type MaskedBankDetails = { account_name: string; institution_name: string; account_identifier_masked: string; routing_identifier_masked: string | null }
+export type Vendor = { id: string; name: string; jurisdiction?: string | null; tax_identifier?: string | null; default_currency: string; payment_terms: string; contact?: Contact | null; address?: Address | null; bank_details?: MaskedBankDetails | null; status: 'active' | 'deactivated'; version: number }
+export type CustomerUpdateInput = Partial<{ name: string; type: 'local' | 'foreign'; jurisdiction: string | null; tax_identifier: string | null; default_currency: string; payment_terms: string; contact: Contact | null; address: Address | null }>
+export type VendorUpdateInput = Partial<{ name: string; jurisdiction: string | null; tax_identifier: string | null; default_currency: string; payment_terms: string; contact: Contact | null; address: Address | null; bank_details: { account_name: string; institution_name: string; account_identifier: string; routing_identifier: string | null } | null }>
 export type Invoice = { id: string; document_number: string | null; customer_id: string; invoice_date: string; due_date: string; currency: string; total: Money; open_balance: Money; status: 'draft' | 'sent' | 'partially_paid' | 'paid' | 'void'; version: number }
 export type Bill = { id: string; document_number: string | null; vendor_id: string; bill_date: string; due_date: string; currency: string; total: Money; open_balance: Money; status: 'draft' | 'awaiting_payment' | 'partially_paid' | 'paid' | 'void'; version: number }
 export type VoidInput = { void_date: string; reason_code: string; narrative: string }
@@ -21,7 +26,9 @@ async function request<T>(path: string, init: RequestInit = {}) {
 
 export const documentsApi = {
   customers: () => request<{ customers: Customer[]; page: Page }>('/v1/customers?limit=100'),
+  customer: (id: string) => request<{ customer: Customer }>(`/v1/customers/${id}`),
   createCustomer: (input: Omit<Customer, 'id' | 'status' | 'version'>) => request<{ customer: Customer }>('/v1/customers', { method: 'POST', headers: { 'Idempotency-Key': commandId() }, body: JSON.stringify(input) }),
+  updateCustomer: (customer: Customer, input: CustomerUpdateInput) => request<{ customer: Customer }>(`/v1/customers/${customer.id}`, { method: 'PATCH', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(customer.version) }, body: JSON.stringify(input) }),
   deactivateCustomer: (customer: Customer) => request<{ customer: Customer }>(`/v1/customers/${customer.id}/deactivate`, { method: 'POST', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(customer.version) }, body: '{}' }),
   invoices: () => request<{ invoices: Invoice[]; page: Page }>('/v1/invoices?limit=100'),
   createInvoice: (input: { customer_id: string; invoice_date: string; due_date?: string; currency: string; lines: Array<{ description: string; quantity: string; unit_price: Money; tax_code_id: string | null }> }) => request<{ invoice: Invoice }>('/v1/invoices', { method: 'POST', headers: { 'Idempotency-Key': commandId() }, body: JSON.stringify(input) }),
@@ -34,7 +41,9 @@ export const documentsApi = {
     return response.blob()
   },
   vendors: () => request<{ vendors: Vendor[]; page: Page }>('/v1/vendors?limit=100'),
-  createVendor: (input: Omit<Vendor, 'id' | 'status' | 'version'>) => request<{ vendor: Vendor }>('/v1/vendors', { method: 'POST', headers: { 'Idempotency-Key': commandId() }, body: JSON.stringify(input) }),
+  vendor: (id: string) => request<{ vendor: Vendor }>(`/v1/vendors/${id}`),
+  createVendor: (input: Omit<Vendor, 'id' | 'status' | 'version' | 'bank_details'> & { bank_details?: VendorUpdateInput['bank_details'] }) => request<{ vendor: Vendor }>('/v1/vendors', { method: 'POST', headers: { 'Idempotency-Key': commandId() }, body: JSON.stringify(input) }),
+  updateVendor: (vendor: Vendor, input: VendorUpdateInput) => request<{ vendor: Vendor }>(`/v1/vendors/${vendor.id}`, { method: 'PATCH', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(vendor.version) }, body: JSON.stringify(input) }),
   deactivateVendor: (vendor: Vendor) => request<{ vendor: Vendor }>(`/v1/vendors/${vendor.id}/deactivate`, { method: 'POST', headers: { 'Idempotency-Key': commandId(), 'If-Match': String(vendor.version) }, body: '{}' }),
   bills: () => request<{ bills: Bill[]; page: Page }>('/v1/bills?limit=100'),
   createBill: (input: { vendor_id: string; bill_date: string; due_date?: string; currency: string; lines: Array<{ description: string; quantity: string; unit_price: Money; expense_account_id: string; tax_code_id: string | null }>; sbu_allocations: Array<{ sbu_code: string; weight: string }> }) => request<{ bill: Bill }>('/v1/bills', { method: 'POST', headers: { 'Idempotency-Key': commandId() }, body: JSON.stringify(input) }),
