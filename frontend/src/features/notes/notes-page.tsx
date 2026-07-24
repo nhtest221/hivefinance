@@ -249,6 +249,7 @@ function NoteDispositionForm({ api, note, canHold, canApply, canRefund, canRever
         makeEmpty={() => ({ credit_tranche_id: '', expected_version: '1' })}
       />
     </> : null}
-    <div className="flex gap-2"><Button disabled={busy} type="submit">{busy ? 'Submitting…' : 'Submit'}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button></div>
+    {mode === 'reverse' ? <p className="text-xs text-[var(--color-danger)]">Reversing a posted note cannot be undone. It creates a linked reversal and restores any consumed value.</p> : null}
+    <div className="flex gap-2"><Button disabled={busy} type="submit" variant={mode === 'reverse' ? 'danger' : 'primary'}>{busy ? 'Submitting…' : mode === 'reverse' ? 'Reverse note' : 'Submit'}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button></div>
   </form></CardContent></Card>
 }

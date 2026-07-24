@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import { settlementApi, type Allocation, type CreditTranche } from './settlement-api'
-import { Alert, Button, Card, CardContent, Input, PageHeader, RepeatableRows, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
+import { Alert, Badge, Button, Card, CardContent, Dialog, DialogContent, DialogDescription, DialogTitle, Input, PageHeader, RepeatableRows, Table, TableCell, TableHead, TableHeader, TableRow, Tabs, TabsContent, TabsList, TabsTrigger } from '@/design-system'
 import { AppLayout } from '@/layouts/app-layout'
 import { hasPermission } from '@/features/identity/permissions'
 
@@ -22,20 +22,13 @@ export function SettlementPage() {
   const canApplyCredit = hasPermission('settlement.credits.apply')
   const canRefundCredit = hasPermission('settlement.credits.refund')
   const canReverse = hasPermission('settlement.allocations.reverse')
+  const [reversing, setReversing] = useState<Allocation | null>(null)
 
   const load = useCallback(async () => {
     if (!canRead) return
     try { setAllocations((await settlementApi.allocations()).allocations) } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to load allocations.') }
   }, [canRead])
   useEffect(() => { void load() }, [load])
-
-  async function reverse(allocation: Allocation) {
-    try {
-      const result = await settlementApi.reverse(allocation)
-      setMessage(result.approval ? `Approval ${result.approval.id} is pending; the allocation remains posted.` : 'Allocation reversed.')
-      await load()
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Reversal failed.') }
-  }
 
   if (!canRead) {
     return (
@@ -52,12 +45,49 @@ export function SettlementPage() {
       <div className="space-y-4 p-4 lg:p-6">
         {message ? <Alert>{message}</Alert> : null}
         <Tabs defaultValue="allocations"><TabsList><TabsTrigger value="allocations">Allocations</TabsTrigger><TabsTrigger value="cash">Receipts &amp; payments</TabsTrigger><TabsTrigger value="credits">Party credit</TabsTrigger></TabsList>
-          <TabsContent value="allocations"><Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Operation</TableHead><TableHead>Party</TableHead><TableHead>Gross</TableHead><TableHead>Applied</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{allocations.map((item) => <TableRow key={item.id}><TableCell>{item.allocation_number ?? item.id.slice(0, 8)}</TableCell><TableCell>{item.operation}</TableCell><TableCell>{item.party_type} · {item.party_id.slice(0, 8)}</TableCell><TableCell>{item.gross_amount.currency} {item.gross_amount.amount}</TableCell><TableCell>{item.allocated_amount.amount}</TableCell><TableCell>{item.state}</TableCell><TableCell>{canReverse && item.state === 'posted' && item.operation !== 'reversal' ? <Button variant="secondary" onClick={() => void reverse(item)}>Reverse</Button> : null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent>
+          <TabsContent value="allocations"><Card><CardContent><Table><TableHeader><TableRow><TableHead>Number</TableHead><TableHead>Operation</TableHead><TableHead>Party</TableHead><TableHead>Gross</TableHead><TableHead>Applied</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><tbody>{allocations.map((item) => <TableRow key={item.id}><TableCell>{item.allocation_number ?? item.id.slice(0, 8)}</TableCell><TableCell className="capitalize">{item.operation.replace(/_/g, ' ')}</TableCell><TableCell>{item.party_type} · {item.party_id.slice(0, 8)}</TableCell><TableCell>{item.gross_amount.currency} {item.gross_amount.amount}</TableCell><TableCell>{item.allocated_amount.amount}</TableCell><TableCell><Badge variant={item.state === 'posted' ? 'success' : 'danger'}>{item.state}</Badge></TableCell><TableCell>{canReverse && item.state === 'posted' && item.operation !== 'reversal' ? <Button variant="danger" size="sm" onClick={() => { setReversing(item) }}>Reverse</Button> : null}</TableCell></TableRow>)}</tbody></Table></CardContent></Card></TabsContent>
           <TabsContent value="cash"><div className="grid gap-4 lg:grid-cols-2">{canReceipt ? <CashForm kind="receipt" onDone={async (text) => { setMessage(text); await load() }} /> : <Alert>Receipt creation is not permitted.</Alert>}{canPayment ? <CashForm kind="payment" onDone={async (text) => { setMessage(text); await load() }} /> : <Alert>Payment creation is not permitted.</Alert>}</div></TabsContent>
           <TabsContent value="credits">{canCredits ? <CreditPanel tranches={tranches} setTranches={setTranches} canApply={canApplyCredit} canRefund={canRefundCredit} onMessage={setMessage} onDone={load} /> : <Alert>Party-credit access is not permitted.</Alert>}</TabsContent>
         </Tabs>
       </div>
+
+      <ReverseAllocationDialog allocation={reversing} onClose={() => { setReversing(null) }} onDone={load} onMessage={setMessage} />
     </AppLayout>
+  )
+}
+
+function ReverseAllocationDialog({ allocation, onClose, onDone, onMessage }: { allocation: Allocation | null; onClose: () => void; onDone: () => Promise<void>; onMessage: (value: string) => void }) {
+  const [submitting, setSubmitting] = useState(false)
+
+  async function confirm() {
+    if (!allocation) return
+    setSubmitting(true)
+    try {
+      const result = await settlementApi.reverse(allocation)
+      onMessage(result.approval ? `Approval ${result.approval.id} is pending; the allocation remains posted.` : 'Allocation reversed.')
+      onClose()
+      await onDone()
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : 'Reversal failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={allocation !== null} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent>
+        <DialogTitle>Reverse allocation</DialogTitle>
+        <DialogDescription>
+          This permanently reverses {allocation?.allocation_number ?? 'this allocation'} and creates a linked reversing entry — it
+          cannot be undone. Any document balances and party-credit tranches it affected will be restored.
+        </DialogDescription>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="danger" disabled={submitting} onClick={() => void confirm()}>{submitting ? 'Reversing…' : 'Reverse allocation'}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
